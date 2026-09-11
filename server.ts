@@ -69,11 +69,11 @@ app.post('/api/auth/unlock', (req, res) => {
 
   const token = createSessionToken(role);
 
-  // Set HTTP-only secure cookie
+  // Set HTTP-only secure cookie compatible with cross-site preview iframes
   res.cookie('diary_token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   });
 
@@ -100,7 +100,8 @@ app.get('/api/auth/session', (req, res) => {
 app.post('/api/auth/lock', (_req, res) => {
   res.clearCookie('diary_token', {
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'none',
+    secure: true
   });
   res.json({ success: true });
 });

@@ -19,7 +19,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
   authorName = "ASH-X8"
 }) => {
   const [code, setCode] = useState('');
-  const [showCode, setShowCode] = useState(false);
+  const [showCode, setShowCode] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isShaking, setIsShaking] = useState(false);
@@ -150,24 +150,66 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
           }}
         >
           {/* Header copy */}
-          <div className="text-center mb-6">
+          <div className="text-center mb-5">
             <h2 className="font-cinzel text-base tracking-[0.2em] text-[#d4af37] uppercase font-semibold">
               Ash's Personal Diary
             </h2>
-            <p className="font-serif-book italic text-[#aba495] text-sm mt-1.5 leading-relaxed">
+            <p className="font-serif-book italic text-[#aba495] text-sm mt-1 leading-relaxed">
               "Some memories are meant to stay between pages."
+            </p>
+          </div>
+
+          {/* Prominent Visible Passcode Hint Card */}
+          <div 
+            id="vault-passcode-hint-card"
+            className="mb-5 p-3 rounded-lg bg-[#181722]/95 border border-[#d4af37]/35 text-center shadow-inner"
+          >
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-[#e8c872] font-cinzel tracking-wider uppercase mb-2">
+              <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" />
+              <span>Passcode Hints (Visible Access)</span>
+            </div>
+            <div className="flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                id="hint-editor-code-btn"
+                onClick={() => { setCode('0704'); setError(null); }}
+                className="px-3 py-1.5 rounded-md bg-[#252332] hover:bg-[#322f44] border border-[#d4af37]/50 text-[#f5ebd7] font-mono text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow"
+                title="Fill Editor passcode: 0704"
+              >
+                <span className="font-cinzel text-[10px] text-[#b8b09f] uppercase tracking-wider">Editor:</span>
+                <span className="font-bold text-[#e8c872] tracking-widest text-sm">0704</span>
+              </button>
+              <span className="text-[#5b5446]">•</span>
+              <button
+                type="button"
+                id="hint-reader-code-btn"
+                onClick={() => { setCode('0422'); setError(null); }}
+                className="px-3 py-1.5 rounded-md bg-[#252332] hover:bg-[#322f44] border border-[#d4af37]/50 text-[#f5ebd7] font-mono text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow"
+                title="Fill Reader passcode: 0422"
+              >
+                <span className="font-cinzel text-[10px] text-[#b8b09f] uppercase tracking-wider">Reader:</span>
+                <span className="font-bold text-[#e8c872] tracking-widest text-sm">0422</span>
+              </button>
+            </div>
+            <p className="text-[10px] text-[#9c9484] font-serif-book italic mt-2">
+              Tap either passcode to auto-fill, or type below. Passcode is visible as you type.
             </p>
           </div>
 
           {/* Code input form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label 
-                htmlFor="access-code-input"
-                className="block text-center text-[11px] tracking-[0.25em] text-[#91897b] uppercase font-medium"
-              >
-                Enter Access Code
-              </label>
+              <div className="flex items-center justify-between px-1">
+                <label 
+                  htmlFor="access-code-input"
+                  className="text-[11px] tracking-[0.2em] text-[#91897b] uppercase font-medium"
+                >
+                  Access Code
+                </label>
+                <span className="text-[10px] font-mono text-[#d4af37]/80">
+                  {code === '0704' ? '✓ Editor Key' : code === '0422' ? '✓ Reader Key' : 'Hint: 0704 or 0422'}
+                </span>
+              </div>
 
               <div className="relative flex items-center">
                 <div className="absolute left-3.5 text-[#857b6b] pointer-events-none">
@@ -187,8 +229,8 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                     setCode(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder="••••"
-                  className="w-full h-12 bg-[#0a0a0d] border border-[#38332c] focus:border-[#d4af37]/70 rounded-lg pl-10 pr-11 text-center font-mono text-lg tracking-[0.35em] text-[#f4eedf] placeholder-[#4f4940] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30 transition-colors"
+                  placeholder="0704 or 0422"
+                  className="w-full h-12 bg-[#0a0a0d] border border-[#38332c] focus:border-[#d4af37]/70 rounded-lg pl-10 pr-11 text-center font-mono text-lg tracking-[0.35em] text-[#f4eedf] placeholder-[#5c5446] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30 transition-colors"
                   aria-invalid={!!error}
                   aria-describedby={error ? "access-error-msg" : undefined}
                   required
@@ -200,6 +242,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                   onClick={() => setShowCode(!showCode)}
                   className="absolute right-3 p-1.5 text-[#857b6b] hover:text-[#d4af37] transition-colors rounded"
                   aria-label={showCode ? "Hide access code" : "Show access code"}
+                  title={showCode ? "Hide passcode characters" : "Show passcode characters"}
                 >
                   {showCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -248,31 +291,11 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
           </div>
         </div>
 
-        {/* Helpful hint for authorized personnel */}
-        <div className="mt-4 text-center space-y-2">
-          <p className="text-[11px] text-[#6d6657] tracking-wider font-medium">
-            Enter authorized vault key to unlock:
+        {/* Quiet footer prompt */}
+        <div className="mt-4 text-center">
+          <p className="text-[11px] text-[#71695b] tracking-wider font-serif-book italic">
+            Enter <span className="font-mono text-[#e8c872] not-italic font-semibold">0704</span> for Editor controls or <span className="font-mono text-[#e8c872] not-italic font-semibold">0422</span> for Reading access
           </p>
-          <div className="flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => { setCode('0704'); setError(null); }}
-              className="px-2.5 py-1 rounded bg-[#17161f] hover:bg-[#232230] border border-[#3b382b] text-[11px] font-mono text-[#d4af37] transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
-              title="Click to fill Editor Code"
-            >
-              <span className="font-cinzel text-[9px] uppercase tracking-wider text-[#918a7b]">Editor:</span>
-              <span className="font-bold">0704</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCode('0422'); setError(null); }}
-              className="px-2.5 py-1 rounded bg-[#17161f] hover:bg-[#232230] border border-[#3b382b] text-[11px] font-mono text-[#d4af37] transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
-              title="Click to fill Reader Code"
-            >
-              <span className="font-cinzel text-[9px] uppercase tracking-wider text-[#918a7b]">Reader:</span>
-              <span className="font-bold">0422</span>
-            </button>
-          </div>
         </div>
       </div>
 

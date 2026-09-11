@@ -80,6 +80,46 @@ export function App() {
     initApp();
   }, []);
 
+  // Cross-device synchronization: Listen for focus, visibility change, and periodic polling
+  useEffect(() => {
+    const syncData = async () => {
+      try {
+        const curSession = await api.getSession();
+        if (curSession.authenticated && curSession.role) {
+          await loadDataForRole(curSession.role);
+        }
+      } catch (e) {
+        console.warn('Sync check skipped:', e);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncData();
+      }
+    };
+
+    const handleFocus = () => {
+      syncData();
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    // Poll every 10 seconds when tab is visible to sync cross-device updates automatically
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncData();
+      }
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(pollInterval);
+    };
+  }, [session.authenticated, session.role]);
+
   const loadDataForRole = async (role: UserRole) => {
     try {
       const entryList = await api.getEntries();
@@ -126,15 +166,17 @@ export function App() {
   };
 
   // CRUD actions for Editor
-  const handleSaveEntry = async (entryData: Partial<DiaryEntry>, _publish: boolean, existingId?: string) => {
+  const handleSaveEntry = async (entryData: Partial<DiaryEntry>, _publish: boolean, existingId?: string): Promise<DiaryEntry> => {
+    let saved: DiaryEntry;
     if (existingId) {
-      await api.updateEntry(existingId, entryData);
+      saved = await api.updateEntry(existingId, entryData);
     } else {
-      await api.createEntry(entryData);
+      saved = await api.createEntry(entryData);
     }
     if (session.role) {
       await loadDataForRole(session.role);
     }
+    return saved;
   };
 
   const handleDeleteEntry = async (id: string) => {

@@ -18,7 +18,9 @@ import {
   BookMarked,
   Layers,
   ArrowUpDown,
-  Sparkles
+  Sparkles,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { DiaryEntry, DiarySettings, DashboardStats, MediaItem } from '../types';
 import { EntryEditor } from './EntryEditor';
@@ -30,7 +32,7 @@ interface EditorDashboardProps {
   settings: DiarySettings;
   stats: DashboardStats;
   media: MediaItem[];
-  onSaveEntry: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<void>;
+  onSaveEntry: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onDeleteEntry: (id: string) => Promise<void>;
   onReorderEntries: (order: { id: string; pageOrder: number }[]) => Promise<void>;
   onSaveSettings: (updates: Partial<DiarySettings>) => Promise<void>;
@@ -98,10 +100,43 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
     setCurrentTab('new-entry');
   };
 
-  const handleSaveFromEditor = async (data: Partial<DiaryEntry>, publish: boolean) => {
-    await onSaveEntry(data, publish, editingEntry?.id);
+  const handleSaveFromEditor = async (data: Partial<DiaryEntry>, publish: boolean, existingId?: string) => {
+    const saved = await onSaveEntry(data, publish, existingId || editingEntry?.id);
     setEditingEntry(null);
     setCurrentTab('entries');
+    return saved;
+  };
+
+  const handleAutoSaveFromEditor = async (data: Partial<DiaryEntry>, publish: boolean, existingId?: string) => {
+    const saved = await onSaveEntry(data, publish, existingId || editingEntry?.id);
+    if (saved && !editingEntry) {
+      setEditingEntry(saved as DiaryEntry);
+    }
+    return saved;
+  };
+
+  const handleToggleStatus = async (entry: DiaryEntry) => {
+    const nextStatus = entry.status === 'published' ? 'draft' : 'published';
+    await onSaveEntry({ status: nextStatus }, nextStatus === 'published', entry.id);
+  };
+
+  const handleMoveOrder = async (entry: DiaryEntry, direction: 'up' | 'down') => {
+    const sorted = [...entries].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
+    const idx = sorted.findIndex(e => e.id === entry.id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+
+    // Swap positions
+    const temp = sorted[idx];
+    sorted[idx] = sorted[targetIdx];
+    sorted[targetIdx] = temp;
+
+    const newOrders = sorted.map((e, index) => ({
+      id: e.id,
+      pageOrder: index + 1
+    }));
+    await onReorderEntries(newOrders);
   };
 
   return (
@@ -451,15 +486,18 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                         <h4 className="font-serif-book text-lg font-semibold text-[#f5ebd7]">
                           {entry.title}
                         </h4>
-                        <span
-                          className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full ${
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(entry)}
+                          className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 active:scale-95 ${
                             entry.status === 'published'
-                              ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                              : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
+                              ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/60'
+                              : 'bg-amber-950/60 text-amber-400 border border-amber-800/40 hover:bg-amber-900/60'
                           }`}
+                          title="Click to toggle Published / Draft status (auto-saved)"
                         >
                           {entry.status}
-                        </span>
+                        </button>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-3 text-xs text-[#857f73]">
@@ -473,6 +511,26 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 self-end sm:self-center">
+                      {/* Quick page ordering controls */}
+                      <div className="flex items-center bg-[#1a1924] border border-[#2b2a3a] rounded-lg p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleMoveOrder(entry, 'up')}
+                          className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
+                          title="Move earlier in book"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveOrder(entry, 'down')}
+                          className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
+                          title="Move later in book"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => handleStartEdit(entry)}
@@ -506,6 +564,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
           <EntryEditor
             initialEntry={editingEntry}
             onSave={handleSaveFromEditor}
+            onAutoSave={handleAutoSaveFromEditor}
             onCancel={() => { setEditingEntry(null); setCurrentTab('entries'); }}
             onPreviewInBook={onPreviewAsReader}
             mediaList={media}

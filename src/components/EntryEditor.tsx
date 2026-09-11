@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Save,
   Send,
@@ -16,14 +16,18 @@ import {
   Quote,
   Heading2,
   List,
-  Link
+  Link,
+  Check,
+  Loader2,
+  CloudCheck
 } from 'lucide-react';
 import { DiaryEntry } from '../types';
 import { MediaLibraryModal } from './MediaLibraryModal';
 
 interface EntryEditorProps {
   initialEntry?: DiaryEntry | null;
-  onSave: (entryData: Partial<DiaryEntry>, publish: boolean) => Promise<void>;
+  onSave: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
+  onAutoSave?: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onCancel: () => void;
   onPreviewInBook: (entryData: DiaryEntry) => void;
   mediaList: any[];
@@ -47,12 +51,14 @@ const MOOD_OPTIONS = [
 export const EntryEditor: React.FC<EntryEditorProps> = ({
   initialEntry,
   onSave,
+  onAutoSave,
   onCancel,
   onPreviewInBook,
   mediaList,
   onUploadMedia,
   onDeleteMedia
 }) => {
+  const [currentId, setCurrentId] = useState<string | undefined>(initialEntry?.id);
   const [title, setTitle] = useState(initialEntry?.title || '');
   const [date, setDate] = useState(initialEntry?.date || new Date().toISOString().split('T')[0]);
   const [content, setContent] = useState(initialEntry?.content || '<p></p>');
@@ -68,10 +74,14 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [mediaTargetField, setMediaTargetField] = useState<'cover' | 'gallery' | 'content'>('cover');
 
   const contentEditorRef = useRef<HTMLDivElement>(null);
+  const isInitialMount = useRef(true);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Apply rich-text command
   const formatDoc = (cmd: string, val: string | undefined = undefined) => {
@@ -93,6 +103,75 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     formatDoc('insertUnorderedList');
   };
 
+  const getParsedEntryData = useCallback((): Partial<DiaryEntry> => {
+    const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
+    const parsedTags = tagsInput
+      .split(',')
+      .map(t => t.trim().replace(/^#/, ''))
+      .filter(Boolean);
+
+    return {
+      title: title.trim(),
+      date,
+      content: currentHTML,
+      mood: mood.trim() || undefined,
+      location: location.trim() || undefined,
+      tags: parsedTags,
+      coverImage: coverImage.trim() || undefined,
+      gallery,
+      status,
+      pageOrder: Number(pageOrder) || 1,
+      customPageNumber: customPageNumber ? Number(customPageNumber) : undefined
+    };
+  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber]);
+
+  // Execute silent background auto-save
+  const performAutoSave = useCallback(async () => {
+    if (!title.trim() || isSubmitting) return;
+    const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
+    if (!currentHTML || currentHTML === '<p></p>' || currentHTML.trim() === '') return;
+
+    setAutoSaveStatus('saving');
+    try {
+      const data = getParsedEntryData();
+      const saveHandler = onAutoSave || onSave;
+      const res = await saveHandler(data, status === 'published', currentId);
+      if (res && (res as DiaryEntry).id) {
+        setCurrentId((res as DiaryEntry).id);
+      }
+      setAutoSaveStatus('saved');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSavedTime(timeStr);
+    } catch (err) {
+      console.warn('Auto-save error:', err);
+      setAutoSaveStatus('unsaved');
+    }
+  }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId]);
+
+  // Debounced auto-save effect whenever inputs change
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    setAutoSaveStatus('unsaved');
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      performAutoSave();
+    }, 1500);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, performAutoSave]);
+
   const handleSave = async (shouldPublish: boolean) => {
     if (!title.trim()) {
       alert('Please provide a title for the entry.');
@@ -105,7 +184,12 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       return;
     }
 
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
     setIsSubmitting(true);
+    setAutoSaveStatus('saving');
     try {
       const parsedTags = tagsInput
         .split(',')
@@ -126,10 +210,13 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
           pageOrder: Number(pageOrder) || 1,
           customPageNumber: customPageNumber ? Number(customPageNumber) : undefined
         },
-        shouldPublish
+        shouldPublish,
+        currentId
       );
+      setAutoSaveStatus('saved');
     } catch (err: any) {
       alert(err.message || 'Error saving entry.');
+      setAutoSaveStatus('unsaved');
     } finally {
       setIsSubmitting(false);
     }
@@ -138,7 +225,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   const handlePreview = () => {
     const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
     const mockEntry: DiaryEntry = {
-      id: initialEntry?.id || 'preview-temp',
+      id: currentId || 'preview-temp',
       title: title.trim() || 'Untitled Journal Entry',
       slug: 'preview',
       date,
@@ -176,15 +263,53 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       id="entry-editor-form"
       className="w-full max-w-4xl mx-auto py-6 px-4 select-text animate-fade-in"
     >
-      {/* Top action bar */}
+      {/* Top action bar with live auto-save indicator */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#292837] mb-6">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1a1924] hover:bg-[#252433] text-[#a8a296] hover:text-[#f5ebd7] transition-colors text-xs font-cinzel tracking-wider uppercase cursor-pointer"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1a1924] hover:bg-[#252433] text-[#a8a296] hover:text-[#f5ebd7] transition-colors text-xs font-cinzel tracking-wider uppercase cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+          </button>
+
+          {/* Live Auto-save indicator */}
+          <div className="flex items-center gap-1.5">
+            {autoSaveStatus === 'saving' && (
+              <span 
+                id="autosave-status-saving"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#252219] border border-[#d4af37]/40 text-[#e8c872] text-[11px] font-mono"
+              >
+                <Loader2 className="w-3 h-3 animate-spin text-[#d4af37]" />
+                Auto-saving…
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span 
+                id="autosave-status-saved"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#122319] border border-emerald-500/40 text-emerald-400 text-[11px] font-mono"
+              >
+                <Check className="w-3 h-3" />
+                Auto-saved {lastSavedTime ? `at ${lastSavedTime}` : ''}
+              </span>
+            )}
+            {autoSaveStatus === 'unsaved' && (
+              <span 
+                id="autosave-status-unsaved"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#231f1c] border border-amber-600/30 text-amber-400/90 text-[11px] font-mono"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Unsaved changes
+              </span>
+            )}
+            {autoSaveStatus === 'idle' && lastSavedTime && (
+              <span className="text-[11px] text-[#857f73] font-mono">
+                Saved at {lastSavedTime}
+              </span>
+            )}
+          </div>
+        </div>
 
         <div className="flex items-center gap-2.5">
           <button
@@ -325,6 +450,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               ref={contentEditorRef}
               contentEditable
               dangerouslySetInnerHTML={{ __html: content }}
+              onInput={() => {
+                if (contentEditorRef.current) {
+                  setContent(contentEditorRef.current.innerHTML);
+                }
+              }}
               onBlur={() => {
                 if (contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);

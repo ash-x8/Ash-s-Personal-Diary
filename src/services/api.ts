@@ -11,10 +11,45 @@ import { localDb } from './localDb';
 const API_BASE = '/api';
 
 class ApiClient {
+  private token: string | null = null;
+
+  constructor() {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        this.token = localStorage.getItem('ash_diary_token');
+      }
+    } catch {}
+  }
+
+  public getToken(): string | null {
+    if (!this.token && typeof window !== 'undefined' && window.localStorage) {
+      this.token = localStorage.getItem('ash_diary_token');
+    }
+    return this.token;
+  }
+
+  public setToken(token: string | null) {
+    this.token = token;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (token) {
+          localStorage.setItem('ash_diary_token', token);
+        } else {
+          localStorage.removeItem('ash_diary_token');
+        }
+      }
+    } catch {}
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const defaultHeaders: Record<string, string> = {};
     if (!(options.body instanceof FormData)) {
       defaultHeaders['Content-Type'] = 'application/json';
+    }
+
+    const currentToken = this.getToken();
+    if (currentToken) {
+      defaultHeaders['Authorization'] = `Bearer ${currentToken}`;
     }
 
     const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -52,7 +87,12 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify({ code })
       });
-      // Mirror to local storage
+
+      if (result && result.token) {
+        this.setToken(result.token);
+      }
+
+      // Mirror to local storage as fallback
       try { localDb.unlock(code); } catch {}
       return result;
     } catch (err: any) {
@@ -60,7 +100,11 @@ class ApiClient {
         throw err;
       }
       // If server returned 404, HTML, network error, or was on Vercel static deployment:
-      return localDb.unlock(code);
+      const localRes = localDb.unlock(code);
+      if (localRes.token) {
+        this.setToken(localRes.token);
+      }
+      return localRes;
     }
   }
 
@@ -82,6 +126,7 @@ class ApiClient {
         method: 'POST'
       });
     } catch {}
+    this.setToken(null);
     localDb.lock();
     return { success: true };
   }
