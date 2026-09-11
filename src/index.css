@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-serif: 'Cormorant Garamond', Georgia, serif;
+    --font-display: 'Cinzel', serif;
+    --font-handwriting: 'Caveat', cursive;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #0d0d11;
+    color: #e2dfd7;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.font-serif-book {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.font-handwriting {
+  font-family: 'Caveat', cursive;
+}
+
+/* 3D Book perspective */
+.perspective-book {
+  perspective: 2400px;
+  perspective-origin: 50% 50%;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Realistic paper shadow & depth */
+.paper-shadow-left {
+  box-shadow: 
+    inset -15px 0 25px -10px rgba(0, 0, 0, 0.15),
+    -10px 15px 35px rgba(0, 0, 0, 0.4),
+    -2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+.paper-shadow-right {
+  box-shadow: 
+    inset 15px 0 25px -10px rgba(0, 0, 0, 0.15),
+    10px 15px 35px rgba(0, 0, 0, 0.4),
+    2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+.book-spine-crease {
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.3) 0%,
+    rgba(0, 0, 0, 0.15) 35%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(0, 0, 0, 0.15) 65%,
+    rgba(0, 0, 0, 0.3) 100%
+  );
+}
+
+/* Leather cover styling */
+.leather-texture {
+  background-color: #1a1615;
+  background-image: radial-gradient(circle at 50% 30%, rgba(212, 175, 55, 0.06) 0%, transparent 70%),
+                    linear-gradient(135deg, rgba(20, 18, 17, 0.95) 0%, rgba(12, 10, 10, 0.98) 100%);
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(212, 175, 55, 0.18),
+    inset 0 0 40px rgba(0, 0, 0, 0.8);
+}
+
+.gold-emboss {
+  color: #d4af37;
+  text-shadow: 
+    0 1px 1px rgba(255, 255, 255, 0.25),
+    0 -1px 1px rgba(0, 0, 0, 0.9),
+    0 0 12px rgba(212, 175, 55, 0.2);
+}
+
+/* Custom scrollbar for diary reading */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 160, 130, 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 160, 130, 0.4);
+}

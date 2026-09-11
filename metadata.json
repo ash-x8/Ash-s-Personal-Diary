@@ -1,0 +1,8 @@
+{
+  "name": "Ash's Personal Diary",
+  "description": "A private, premium, cinematic digital diary that feels like opening and reading a real personal book with secure access control and dual reader/editor modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

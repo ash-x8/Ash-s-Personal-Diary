@@ -1,0 +1,285 @@
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import multer from 'multer';
+import { db } from './server/db.ts';
+import {
+  authMiddleware,
+  createSessionToken,
+  requireAuth,
+  requireEditor,
+  validateAccessCode
+} from './server/auth.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = 3000;
+const app = express();
+
+// Ensure upload directory exists
+const UPLOAD_DIR = path.resolve(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// Multer storage
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const uniqueName = `img-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
+});
+
+// Middleware
+app.use(cors({ origin: true, credentials: true }));
+app.use(cookieParser());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(authMiddleware);
+
+// Static uploads
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
+
+app.post('/api/auth/unlock', (req, res) => {
+  const { code } = req.body;
+  const role = validateAccessCode(code);
+
+  if (!role) {
+    // Strictly generic error per specification
+    res.status(401).json({ error: 'Invalid access code.' });
+    return;
+  }
+
+  const token = createSessionToken(role);
+
+  // Set HTTP-only secure cookie
+  res.cookie('diary_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
+
+  res.json({
+    success: true,
+    role,
+    token
+  });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  if (req.user) {
+    res.json({
+      authenticated: true,
+      role: req.user.role
+    });
+  } else {
+    res.json({
+      authenticated: false
+    });
+  }
+});
+
+app.post('/api/auth/lock', (_req, res) => {
+  res.clearCookie('diary_token', {
+    httpOnly: true,
+    sameSite: 'lax'
+  });
+  res.json({ success: true });
+});
+
+/* ==========================================================================
+   DIARY ENTRIES ROUTES
+   ========================================================================== */
+
+// Get entries (filtered by role)
+app.get('/api/entries', requireAuth, (req, res) => {
+  const isEditor = req.user?.role === 'EDITOR';
+  const entries = db.getEntries(isEditor);
+  res.json(entries);
+});
+
+// Get single entry
+app.get('/api/entries/:id', requireAuth, (req, res) => {
+  const isEditor = req.user?.role === 'EDITOR';
+  const entry = db.getEntry(req.params.id, isEditor);
+
+  if (!entry) {
+    res.status(404).json({ error: 'This page could not be opened.' });
+    return;
+  }
+
+  res.json(entry);
+});
+
+// Create entry (Editor only)
+app.post('/api/entries', requireEditor, (req, res) => {
+  try {
+    const { title, content, date, mood, location, tags, coverImage, gallery, status, pageOrder, customPageNumber } = req.body;
+
+    if (!title || !content || !date) {
+      res.status(400).json({ error: 'Title, content, and date are required.' });
+      return;
+    }
+
+    const newEntry = db.createEntry({
+      title,
+      content,
+      date,
+      mood: mood || undefined,
+      location: location || undefined,
+      tags: Array.isArray(tags) ? tags : [],
+      coverImage: coverImage || undefined,
+      gallery: Array.isArray(gallery) ? gallery : [],
+      status: status === 'published' ? 'published' : 'draft',
+      pageOrder: Number(pageOrder) || 0,
+      customPageNumber: customPageNumber ? Number(customPageNumber) : undefined
+    });
+
+    res.status(201).json(newEntry);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Something went wrong while saving your entry.', details: err.message });
+  }
+});
+
+// Update entry (Editor only)
+app.put('/api/entries/:id', requireEditor, (req, res) => {
+  try {
+    const updated = db.updateEntry(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: 'Entry not found.' });
+      return;
+    }
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Something went wrong while saving your entry.', details: err.message });
+  }
+});
+
+// Delete entry (Editor only)
+app.delete('/api/entries/:id', requireEditor, (req, res) => {
+  const deleted = db.deleteEntry(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: 'Entry not found.' });
+    return;
+  }
+  res.json({ success: true });
+});
+
+// Reorder entries (Editor only)
+app.put('/api/entries-order', requireEditor, (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) {
+    res.status(400).json({ error: 'Invalid order array.' });
+    return;
+  }
+  db.reorderEntries(order);
+  res.json({ success: true });
+});
+
+/* ==========================================================================
+   SETTINGS & STATS ROUTES
+   ========================================================================== */
+
+app.get('/api/settings', (_req, res) => {
+  res.json(db.getSettings());
+});
+
+app.put('/api/settings', requireEditor, (req, res) => {
+  const updated = db.updateSettings(req.body);
+  res.json(updated);
+});
+
+app.get('/api/stats', requireEditor, (_req, res) => {
+  res.json(db.getStats());
+});
+
+/* ==========================================================================
+   MEDIA LIBRARY ROUTES
+   ========================================================================== */
+
+app.get('/api/media', requireEditor, (_req, res) => {
+  res.json(db.getMedia());
+});
+
+app.post('/api/media/upload', requireEditor, upload.single('image'), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No image uploaded.' });
+    return;
+  }
+
+  const mediaItem = db.addMedia({
+    id: `media-${Date.now()}`,
+    filename: req.file.filename,
+    url: `/uploads/${req.file.filename}`,
+    originalName: req.file.originalname,
+    size: req.file.size,
+    mimeType: req.file.mimetype,
+    uploadedAt: new Date().toISOString()
+  });
+
+  res.status(201).json(mediaItem);
+});
+
+app.delete('/api/media/:id', requireEditor, (req, res) => {
+  const mediaList = db.getMedia();
+  const target = mediaList.find(m => m.id === req.params.id);
+  if (target) {
+    const filePath = path.resolve(UPLOAD_DIR, target.filename);
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error('Error removing file:', e);
+      }
+    }
+  }
+  db.deleteMedia(req.params.id);
+  res.json({ success: true });
+});
+
+/* ==========================================================================
+   CLIENT SERVING (Vite Dev & Production)
+   ========================================================================== */
+
+async function startServer() {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!isProduction) {
+    const { createServer } = await import('vite');
+    const vite = await createServer({
+      server: { middlewareMode: true },
+      appType: 'spa'
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(__dirname, 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Ash's Personal Diary running on port ${PORT} (${isProduction ? 'production' : 'development'})`);
+  });
+}
+
+startServer();
