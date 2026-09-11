@@ -249,10 +249,30 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
         </div>
 
         {/* Helpful hint for authorized personnel */}
-        <div className="mt-4 text-center">
-          <p className="text-[11px] text-[#5e584d] tracking-wider">
-            Enter authorized access key to proceed.
+        <div className="mt-4 text-center space-y-2">
+          <p className="text-[11px] text-[#6d6657] tracking-wider font-medium">
+            Enter authorized vault key to unlock:
           </p>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setCode('0704'); setError(null); }}
+              className="px-2.5 py-1 rounded bg-[#17161f] hover:bg-[#232230] border border-[#3b382b] text-[11px] font-mono text-[#d4af37] transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
+              title="Click to fill Editor Code"
+            >
+              <span className="font-cinzel text-[9px] uppercase tracking-wider text-[#918a7b]">Editor:</span>
+              <span className="font-bold">0704</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setCode('0422'); setError(null); }}
+              className="px-2.5 py-1 rounded bg-[#17161f] hover:bg-[#232230] border border-[#3b382b] text-[11px] font-mono text-[#d4af37] transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
+              title="Click to fill Reader Code"
+            >
+              <span className="font-cinzel text-[9px] uppercase tracking-wider text-[#918a7b]">Reader:</span>
+              <span className="font-bold">0422</span>
+            </button>
+          </div>
         </div>
       </div>
 

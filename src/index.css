@@ -33,7 +33,7 @@
 
 /* 3D Book perspective */
 .perspective-book {
-  perspective: 2400px;
+  perspective: 2600px;
   perspective-origin: 50% 50%;
 }
 
@@ -44,6 +44,127 @@
 .backface-hidden {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+
+/* 3D Physical Page Turn Animations */
+@keyframes turnLeafNext {
+  0% {
+    transform: rotateY(0deg);
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+  }
+  35% {
+    transform: rotateY(-65deg) translateZ(18px);
+    box-shadow: -15px 0 35px rgba(0, 0, 0, 0.45);
+  }
+  65% {
+    transform: rotateY(-125deg) translateZ(18px);
+    box-shadow: 15px 0 35px rgba(0, 0, 0, 0.45);
+  }
+  100% {
+    transform: rotateY(-180deg);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+  }
+}
+
+@keyframes turnLeafPrev {
+  0% {
+    transform: rotateY(0deg);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+  }
+  35% {
+    transform: rotateY(65deg) translateZ(18px);
+    box-shadow: 15px 0 35px rgba(0, 0, 0, 0.45);
+  }
+  65% {
+    transform: rotateY(125deg) translateZ(18px);
+    box-shadow: -15px 0 35px rgba(0, 0, 0, 0.45);
+  }
+  100% {
+    transform: rotateY(180deg);
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+  }
+}
+
+@keyframes dynamicShadowFront {
+  0% { opacity: 0; }
+  40% { opacity: 0.55; }
+  50% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+@keyframes dynamicShadowBack {
+  0% { opacity: 0; }
+  50% { opacity: 0.7; }
+  70% { opacity: 0.4; }
+  100% { opacity: 0; }
+}
+
+@keyframes castShadowUnder {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.25; }
+  100% { opacity: 0; }
+}
+
+@keyframes mobileTurnNext {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: rotateY(-50deg) translateZ(20px);
+    opacity: 0.85;
+  }
+  100% {
+    transform: rotateY(-110deg) translateZ(30px);
+    opacity: 0;
+  }
+}
+
+@keyframes mobileTurnPrev {
+  0% {
+    transform: rotateY(-110deg) translateZ(30px);
+    opacity: 0;
+  }
+  50% {
+    transform: rotateY(-50deg) translateZ(20px);
+    opacity: 0.85;
+  }
+  100% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+.anim-leaf-next {
+  animation: turnLeafNext 0.72s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: left center;
+}
+
+.anim-leaf-prev {
+  animation: turnLeafPrev 0.72s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: right center;
+}
+
+.anim-shadow-front {
+  animation: dynamicShadowFront 0.72s ease-in-out forwards;
+}
+
+.anim-shadow-back {
+  animation: dynamicShadowBack 0.72s ease-in-out forwards;
+}
+
+.anim-cast-shadow {
+  animation: castShadowUnder 0.72s ease-out forwards;
+}
+
+.anim-mobile-next {
+  animation: mobileTurnNext 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: left center;
+}
+
+.anim-mobile-prev {
+  animation: mobileTurnPrev 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: left center;
 }
 
 /* Realistic paper shadow & depth */

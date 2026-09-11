@@ -33,6 +33,18 @@ interface BookReaderProps {
   onClosePreview?: () => void;
 }
 
+interface FlipState {
+  direction: 'next' | 'prev';
+  fromSpread: number;
+  toSpread: number;
+}
+
+interface MobileFlipState {
+  direction: 'next' | 'prev';
+  fromIndex: number;
+  toIndex: number;
+}
+
 export const BookReader: React.FC<BookReaderProps> = ({
   entries,
   settings,
@@ -45,7 +57,8 @@ export const BookReader: React.FC<BookReaderProps> = ({
   // Spread 0: Left = Title Page, Right = Table of Contents
   // Spread 1..N: Left = Entry Left, Right = Entry Right
   const [currentSpread, setCurrentSpread] = useState(0);
-  const [isFlipping, setIsFlipping] = useState<'next' | 'prev' | null>(null);
+  const [flipState, setFlipState] = useState<FlipState | null>(null);
+  const [mobileFlipState, setMobileFlipState] = useState<MobileFlipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [paperTheme, setPaperTheme] = useState<'classic' | 'clean' | 'dark'>(settings.paperColor || 'classic');
   const [soundEnabled, setSoundEnabled] = useState(settings.soundEnabled !== false);
@@ -80,6 +93,8 @@ export const BookReader: React.FC<BookReaderProps> = ({
     soundService.setEnabled(soundEnabled);
   }, [soundEnabled]);
 
+  const isTransitioning = Boolean(flipState || mobileFlipState);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -91,7 +106,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
         return;
       }
 
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         goToNext();
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -104,55 +119,99 @@ export const BookReader: React.FC<BookReaderProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentSpread, mobilePageIndex, isMobileView, isFlipping, showSearchModal, showTOCModal, totalSpreads]);
+  }, [currentSpread, mobilePageIndex, isMobileView, flipState, mobileFlipState, showSearchModal, showTOCModal, totalSpreads]);
 
-  // Page Turn Actions
+  // Page Turn Actions with Realistic 3D Turn Mechanics
   const goToNext = () => {
-    if (isFlipping) return;
+    if (isTransitioning) return;
 
     if (isMobileView) {
       if (mobilePageIndex < totalMobilePages - 1) {
         soundService.playPageTurn();
-        setMobilePageIndex(prev => prev + 1);
+        const nextIdx = mobilePageIndex + 1;
+        setMobileFlipState({
+          direction: 'next',
+          fromIndex: mobilePageIndex,
+          toIndex: nextIdx
+        });
+        setTimeout(() => {
+          setMobilePageIndex(nextIdx);
+          setMobileFlipState(null);
+        }, 550);
       }
     } else {
       if (currentSpread < totalSpreads - 1) {
         soundService.playPageTurn();
-        setIsFlipping('next');
+        const nextSpread = currentSpread + 1;
+        setFlipState({
+          direction: 'next',
+          fromSpread: currentSpread,
+          toSpread: nextSpread
+        });
         setTimeout(() => {
-          setCurrentSpread(prev => prev + 1);
-          setIsFlipping(null);
-        }, 550);
+          setCurrentSpread(nextSpread);
+          setFlipState(null);
+        }, 720);
       }
     }
   };
 
   const goToPrev = () => {
-    if (isFlipping) return;
+    if (isTransitioning) return;
 
     if (isMobileView) {
       if (mobilePageIndex > 0) {
         soundService.playPageTurn();
-        setMobilePageIndex(prev => prev - 1);
+        const prevIdx = mobilePageIndex - 1;
+        setMobileFlipState({
+          direction: 'prev',
+          fromIndex: mobilePageIndex,
+          toIndex: prevIdx
+        });
+        setTimeout(() => {
+          setMobilePageIndex(prevIdx);
+          setMobileFlipState(null);
+        }, 550);
       }
     } else {
       if (currentSpread > 0) {
         soundService.playPageTurn();
-        setIsFlipping('prev');
+        const prevSpread = currentSpread - 1;
+        setFlipState({
+          direction: 'prev',
+          fromSpread: currentSpread,
+          toSpread: prevSpread
+        });
         setTimeout(() => {
-          setCurrentSpread(prev => prev - 1);
-          setIsFlipping(null);
-        }, 550);
+          setCurrentSpread(prevSpread);
+          setFlipState(null);
+        }, 720);
       }
     }
   };
 
   const jumpToEntry = (entryIdx: number) => {
     soundService.playPageTurn();
+    const targetSpread = entryIdx + 1;
     if (isMobileView) {
-      setMobilePageIndex((entryIdx + 1) * 2);
+      const targetPage = (entryIdx + 1) * 2;
+      if (targetPage !== mobilePageIndex) {
+        const dir = targetPage > mobilePageIndex ? 'next' : 'prev';
+        setMobileFlipState({ direction: dir, fromIndex: mobilePageIndex, toIndex: targetPage });
+        setTimeout(() => {
+          setMobilePageIndex(targetPage);
+          setMobileFlipState(null);
+        }, 550);
+      }
     } else {
-      setCurrentSpread(entryIdx + 1);
+      if (targetSpread !== currentSpread) {
+        const dir = targetSpread > currentSpread ? 'next' : 'prev';
+        setFlipState({ direction: dir, fromSpread: currentSpread, toSpread: targetSpread });
+        setTimeout(() => {
+          setCurrentSpread(targetSpread);
+          setFlipState(null);
+        }, 720);
+      }
     }
     setShowTOCModal(false);
     setShowSearchModal(false);
@@ -161,11 +220,196 @@ export const BookReader: React.FC<BookReaderProps> = ({
   const jumpToCover = () => {
     soundService.playPageTurn();
     if (isMobileView) {
-      setMobilePageIndex(0);
+      if (mobilePageIndex !== 0) {
+        setMobileFlipState({ direction: 'prev', fromIndex: mobilePageIndex, toIndex: 0 });
+        setTimeout(() => {
+          setMobilePageIndex(0);
+          setMobileFlipState(null);
+        }, 550);
+      }
     } else {
-      setCurrentSpread(0);
+      if (currentSpread !== 0) {
+        setFlipState({ direction: 'prev', fromSpread: currentSpread, toSpread: 0 });
+        setTimeout(() => {
+          setCurrentSpread(0);
+          setFlipState(null);
+        }, 720);
+      }
     }
     setShowTOCModal(false);
+  };
+
+  // Modular page renderers for both static spread and 3D turning leaf
+  const renderSpreadLeft = (spreadIdx: number) => {
+    if (spreadIdx === 0) {
+      return (
+        <BookPageContainer
+          pageNumber={1}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="left"
+        >
+          <BookTitlePage
+            settings={settings}
+            authorName={settings.authorName}
+            totalEntries={entries.length}
+          />
+        </BookPageContainer>
+      );
+    }
+
+    const entry = entries[spreadIdx - 1];
+    if (!entry) {
+      return (
+        <BookPageContainer
+          pageNumber={spreadIdx * 2}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="left"
+        >
+          <div className="h-full flex items-center justify-center text-center opacity-60 font-serif-book italic">
+            <p>End of inscribed journal pages.</p>
+          </div>
+        </BookPageContainer>
+      );
+    }
+
+    return (
+      <BookPageContainer
+        pageNumber={spreadIdx * 2}
+        totalPages={totalSpreads * 2}
+        settings={settings}
+        paperTheme={paperTheme}
+        side="left"
+      >
+        <BookEntryLeftPage entry={entry} entryIndex={spreadIdx - 1} />
+      </BookPageContainer>
+    );
+  };
+
+  const renderSpreadRight = (spreadIdx: number) => {
+    if (spreadIdx === 0) {
+      return (
+        <BookPageContainer
+          pageNumber={2}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="right"
+        >
+          <BookTableOfContents
+            entries={entries}
+            onSelectEntry={jumpToEntry}
+          />
+        </BookPageContainer>
+      );
+    }
+
+    const entry = entries[spreadIdx - 1];
+    if (!entry) {
+      return (
+        <BookPageContainer
+          pageNumber={spreadIdx * 2 + 1}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="right"
+        >
+          <div className="h-full flex items-center justify-center text-center opacity-60 font-serif-book italic">
+            <p>The quiet unwritten tomorrow.</p>
+          </div>
+        </BookPageContainer>
+      );
+    }
+
+    return (
+      <BookPageContainer
+        pageNumber={spreadIdx * 2 + 1}
+        totalPages={totalSpreads * 2}
+        settings={settings}
+        paperTheme={paperTheme}
+        side="right"
+      >
+        <BookEntryRightPage entry={entry} />
+      </BookPageContainer>
+    );
+  };
+
+  const renderMobilePage = (pageIdx: number) => {
+    if (pageIdx === 0) {
+      return (
+        <BookPageContainer
+          pageNumber={1}
+          totalPages={totalMobilePages}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="single"
+        >
+          <BookTitlePage
+            settings={settings}
+            authorName={settings.authorName}
+            totalEntries={entries.length}
+          />
+        </BookPageContainer>
+      );
+    }
+
+    if (pageIdx === 1) {
+      return (
+        <BookPageContainer
+          pageNumber={2}
+          totalPages={totalMobilePages}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="single"
+        >
+          <BookTableOfContents
+            entries={entries}
+            onSelectEntry={jumpToEntry}
+          />
+        </BookPageContainer>
+      );
+    }
+
+    const entryIndex = Math.floor((pageIdx - 2) / 2);
+    const isLeftPage = (pageIdx - 2) % 2 === 0;
+    const entry = entries[entryIndex];
+
+    if (!entry) {
+      return (
+        <BookPageContainer
+          pageNumber={pageIdx + 1}
+          totalPages={totalMobilePages}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="single"
+        >
+          <div className="h-full flex items-center justify-center text-center">
+            <p className="font-serif-book italic opacity-70">
+              End of inscribed pages.
+            </p>
+          </div>
+        </BookPageContainer>
+      );
+    }
+
+    return (
+      <BookPageContainer
+        pageNumber={pageIdx + 1}
+        totalPages={totalMobilePages}
+        settings={settings}
+        paperTheme={paperTheme}
+        side="single"
+      >
+        {isLeftPage ? (
+          <BookEntryLeftPage entry={entry} entryIndex={entryIndex} />
+        ) : (
+          <BookEntryRightPage entry={entry} />
+        )}
+      </BookPageContainer>
+    );
   };
 
   // Touch handlers for mobile swipe
@@ -396,168 +640,134 @@ export const BookReader: React.FC<BookReaderProps> = ({
         >
           {/* Mobile Single Page View */}
           {isMobileView ? (
-            <div className="w-full h-full">
-              {mobilePageIndex === 0 && (
-                <BookPageContainer
-                  pageNumber={1}
-                  totalPages={totalMobilePages}
-                  settings={settings}
-                  paperTheme={paperTheme}
-                  side="single"
-                >
-                  <BookTitlePage
-                    settings={settings}
-                    authorName={settings.authorName}
-                    totalEntries={entries.length}
-                  />
-                </BookPageContainer>
-              )}
+            <div className="w-full h-full relative overflow-hidden transform-style-3d">
+              {mobileFlipState ? (
+                <>
+                  {/* Target page situated underneath */}
+                  <div className="absolute inset-0 z-10 w-full h-full">
+                    {renderMobilePage(mobileFlipState.toIndex)}
+                  </div>
 
-              {mobilePageIndex === 1 && (
-                <BookPageContainer
-                  pageNumber={2}
-                  totalPages={totalMobilePages}
-                  settings={settings}
-                  paperTheme={paperTheme}
-                  side="single"
-                >
-                  <BookTableOfContents
-                    entries={entries}
-                    onSelectEntry={jumpToEntry}
-                  />
-                </BookPageContainer>
-              )}
-
-              {mobilePageIndex >= 2 && (() => {
-                const entryIndex = Math.floor((mobilePageIndex - 2) / 2);
-                const isLeftPage = (mobilePageIndex - 2) % 2 === 0;
-                const entry = entries[entryIndex];
-
-                if (!entry) {
-                  return (
-                    <BookPageContainer
-                      pageNumber={mobilePageIndex + 1}
-                      totalPages={totalMobilePages}
-                      settings={settings}
-                      paperTheme={paperTheme}
-                      side="single"
-                    >
-                      <div className="h-full flex items-center justify-center text-center">
-                        <p className="font-serif-book italic opacity-70">
-                          End of inscribed pages.
-                        </p>
-                      </div>
-                    </BookPageContainer>
-                  );
-                }
-
-                return (
-                  <BookPageContainer
-                    pageNumber={mobilePageIndex + 1}
-                    totalPages={totalMobilePages}
-                    settings={settings}
-                    paperTheme={paperTheme}
-                    side="single"
+                  {/* Flipping page on top performing the 3D curl */}
+                  <div
+                    className={`absolute inset-0 z-20 w-full h-full ${
+                      mobileFlipState.direction === 'next' ? 'anim-mobile-next' : 'anim-mobile-prev'
+                    }`}
                   >
-                    {isLeftPage ? (
-                      <BookEntryLeftPage entry={entry} entryIndex={entryIndex} />
-                    ) : (
-                      <BookEntryRightPage entry={entry} />
-                    )}
-                  </BookPageContainer>
-                );
-              })()}
+                    {renderMobilePage(mobileFlipState.fromIndex)}
+                  </div>
+                </>
+              ) : (
+                <div className="w-full h-full">
+                  {renderMobilePage(mobilePageIndex)}
+                </div>
+              )}
             </div>
           ) : (
-            /* Desktop / Tablet Two-Page Spread */
-            <div className="w-full h-full flex items-stretch relative">
-              {/* LEFT PAGE */}
-              <div 
-                id="book-left-page"
-                className={`w-1/2 h-full transition-transform duration-500 origin-right ${
-                  isFlipping === 'prev' ? '-rotate-y-12' : ''
-                }`}
-              >
-                {currentSpread === 0 ? (
-                  <BookPageContainer
-                    pageNumber={1}
-                    totalPages={totalSpreads * 2}
-                    settings={settings}
-                    paperTheme={paperTheme}
-                    side="left"
-                  >
-                    <BookTitlePage
-                      settings={settings}
-                      authorName={settings.authorName}
-                      totalEntries={entries.length}
-                    />
-                  </BookPageContainer>
-                ) : (
-                  (() => {
-                    const entry = entries[currentSpread - 1];
-                    if (!entry) return null;
-                    return (
-                      <BookPageContainer
-                        pageNumber={currentSpread * 2}
-                        totalPages={totalSpreads * 2}
-                        settings={settings}
-                        paperTheme={paperTheme}
-                        side="left"
-                      >
-                        <BookEntryLeftPage
-                          entry={entry}
-                          entryIndex={currentSpread - 1}
-                        />
-                      </BookPageContainer>
-                    );
-                  })()
-                )}
-              </div>
+            /* Desktop / Tablet Two-Page Spread with Physical 3D Turning Leaf */
+            <div className="w-full h-full flex items-stretch relative transform-style-3d">
+              {flipState?.direction === 'next' ? (
+                <>
+                  {/* Left Page (from current spread, stays stationary until covered) */}
+                  <div id="book-left-page" className="w-1/2 h-full relative z-10">
+                    {renderSpreadLeft(flipState.fromSpread)}
+                  </div>
 
-              {/* Realistic Center Book Spine Crease & Shadow */}
-              <div 
-                aria-hidden="true" 
-                className="w-4 h-full book-spine-crease z-20 shrink-0 pointer-events-none" 
-              />
+                  {/* Spine Crease */}
+                  <div 
+                    aria-hidden="true" 
+                    className="w-4 h-full book-spine-crease z-20 shrink-0 pointer-events-none" 
+                  />
 
-              {/* RIGHT PAGE */}
-              <div 
-                id="book-right-page"
-                className={`w-1/2 h-full transition-transform duration-500 origin-left ${
-                  isFlipping === 'next' ? 'rotate-y-12' : ''
-                }`}
-              >
-                {currentSpread === 0 ? (
-                  <BookPageContainer
-                    pageNumber={2}
-                    totalPages={totalSpreads * 2}
-                    settings={settings}
-                    paperTheme={paperTheme}
-                    side="right"
+                  {/* Right Page (revealed underneath as leaf turns forward) */}
+                  <div id="book-right-page" className="w-1/2 h-full relative z-10 overflow-hidden">
+                    {renderSpreadRight(flipState.toSpread)}
+                    {/* Shadow cast on revealed right page by turning leaf */}
+                    <div className="absolute inset-0 pointer-events-none anim-cast-shadow z-20 bg-gradient-to-r from-black/50 via-black/20 to-transparent" />
+                  </div>
+
+                  {/* Physical 3D Turning Leaf: starts on right, rotates 180° over spine to left */}
+                  <div 
+                    className="w-1/2 h-full absolute right-0 top-0 bottom-0 z-30 transform-style-3d anim-leaf-next pointer-events-none"
+                    style={{ transformOrigin: 'left center' }}
                   >
-                    <BookTableOfContents
-                      entries={entries}
-                      onSelectEntry={jumpToEntry}
-                    />
-                  </BookPageContainer>
-                ) : (
-                  (() => {
-                    const entry = entries[currentSpread - 1];
-                    if (!entry) return null;
-                    return (
-                      <BookPageContainer
-                        pageNumber={currentSpread * 2 + 1}
-                        totalPages={totalSpreads * 2}
-                        settings={settings}
-                        paperTheme={paperTheme}
-                        side="right"
-                      >
-                        <BookEntryRightPage entry={entry} />
-                      </BookPageContainer>
-                    );
-                  })()
-                )}
-              </div>
+                    {/* Front Face: current right page being turned */}
+                    <div className="absolute inset-0 backface-hidden overflow-hidden rounded-r-lg shadow-2xl">
+                      {renderSpreadRight(flipState.fromSpread)}
+                      <div className="absolute inset-0 pointer-events-none anim-shadow-front bg-gradient-to-r from-black/60 via-black/25 to-transparent" />
+                    </div>
+
+                    {/* Back Face: target left page (rotated 180° so it settles upright on the left) */}
+                    <div 
+                      className="absolute inset-0 backface-hidden overflow-hidden rounded-l-lg shadow-2xl"
+                      style={{ transform: 'rotateY(180deg)' }}
+                    >
+                      {renderSpreadLeft(flipState.toSpread)}
+                      <div className="absolute inset-0 pointer-events-none anim-shadow-back bg-gradient-to-l from-black/60 via-black/25 to-transparent" />
+                    </div>
+                  </div>
+                </>
+              ) : flipState?.direction === 'prev' ? (
+                <>
+                  {/* Left Page (revealed underneath as leaf turns backward) */}
+                  <div id="book-left-page" className="w-1/2 h-full relative z-10 overflow-hidden">
+                    {renderSpreadLeft(flipState.toSpread)}
+                    {/* Shadow cast on revealed left page by turning leaf */}
+                    <div className="absolute inset-0 pointer-events-none anim-cast-shadow z-20 bg-gradient-to-l from-black/50 via-black/20 to-transparent" />
+                  </div>
+
+                  {/* Spine Crease */}
+                  <div 
+                    aria-hidden="true" 
+                    className="w-4 h-full book-spine-crease z-20 shrink-0 pointer-events-none" 
+                  />
+
+                  {/* Right Page (from current spread) */}
+                  <div id="book-right-page" className="w-1/2 h-full relative z-10">
+                    {renderSpreadRight(flipState.fromSpread)}
+                  </div>
+
+                  {/* Physical 3D Turning Leaf: starts on left, rotates 180° over spine to right */}
+                  <div 
+                    className="w-1/2 h-full absolute left-0 top-0 bottom-0 z-30 transform-style-3d anim-leaf-prev pointer-events-none"
+                    style={{ transformOrigin: 'right center' }}
+                  >
+                    {/* Front Face: current left page being turned */}
+                    <div className="absolute inset-0 backface-hidden overflow-hidden rounded-l-lg shadow-2xl">
+                      {renderSpreadLeft(flipState.fromSpread)}
+                      <div className="absolute inset-0 pointer-events-none anim-shadow-front bg-gradient-to-l from-black/60 via-black/25 to-transparent" />
+                    </div>
+
+                    {/* Back Face: target right page (rotated 180° so it settles upright on the right) */}
+                    <div 
+                      className="absolute inset-0 backface-hidden overflow-hidden rounded-r-lg shadow-2xl"
+                      style={{ transform: 'rotateY(180deg)' }}
+                    >
+                      {renderSpreadRight(flipState.toSpread)}
+                      <div className="absolute inset-0 pointer-events-none anim-shadow-back bg-gradient-to-r from-black/60 via-black/25 to-transparent" />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Stationary Spread */
+                <>
+                  {/* LEFT PAGE */}
+                  <div id="book-left-page" className="w-1/2 h-full">
+                    {renderSpreadLeft(currentSpread)}
+                  </div>
+
+                  {/* Realistic Center Book Spine Crease */}
+                  <div 
+                    aria-hidden="true" 
+                    className="w-4 h-full book-spine-crease z-20 shrink-0 pointer-events-none" 
+                  />
+
+                  {/* RIGHT PAGE */}
+                  <div id="book-right-page" className="w-1/2 h-full">
+                    {renderSpreadRight(currentSpread)}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

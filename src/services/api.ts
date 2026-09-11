@@ -6,6 +6,7 @@ import {
   MediaItem,
   UserRole
 } from '../types/index';
+import { localDb } from './localDb';
 
 const API_BASE = '/api';
 
@@ -25,8 +26,13 @@ class ApiClient {
       credentials: 'include'
     });
 
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      throw new Error('Server returned HTML (likely offline or static hosting)');
+    }
+
     if (!response.ok) {
-      let errorMsg = 'An unexpected error occurred.';
+      let errorMsg = 'Invalid request.';
       try {
         const errorData = await response.json();
         errorMsg = errorData.error || errorMsg;
@@ -41,97 +47,165 @@ class ApiClient {
 
   // Auth
   public async unlock(code: string): Promise<{ success: boolean; role: UserRole; token: string }> {
-    return this.request<{ success: boolean; role: UserRole; token: string }>('/auth/unlock', {
-      method: 'POST',
-      body: JSON.stringify({ code })
-    });
+    try {
+      const result = await this.request<{ success: boolean; role: UserRole; token: string }>('/auth/unlock', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      });
+      // Mirror to local storage
+      try { localDb.unlock(code); } catch {}
+      return result;
+    } catch (err: any) {
+      if (err.message === 'Invalid access code.') {
+        throw err;
+      }
+      // If server returned 404, HTML, network error, or was on Vercel static deployment:
+      return localDb.unlock(code);
+    }
   }
 
   public async getSession(): Promise<AuthSession> {
     try {
-      return await this.request<AuthSession>('/auth/session');
+      const res = await this.request<AuthSession>('/auth/session');
+      if (res && res.authenticated) {
+        return res;
+      }
+      return localDb.getSession();
     } catch {
-      return { authenticated: false };
+      return localDb.getSession();
     }
   }
 
   public async lock(): Promise<{ success: boolean }> {
-    return this.request<{ success: boolean }>('/auth/lock', {
-      method: 'POST'
-    });
+    try {
+      await this.request<{ success: boolean }>('/auth/lock', {
+        method: 'POST'
+      });
+    } catch {}
+    localDb.lock();
+    return { success: true };
   }
 
   // Entries
   public async getEntries(): Promise<DiaryEntry[]> {
-    return this.request<DiaryEntry[]>('/entries');
+    try {
+      const serverEntries = await this.request<DiaryEntry[]>('/entries');
+      return serverEntries;
+    } catch {
+      return localDb.getEntries();
+    }
   }
 
   public async getEntry(id: string): Promise<DiaryEntry> {
-    return this.request<DiaryEntry>(`/entries/${id}`);
+    try {
+      return await this.request<DiaryEntry>(`/entries/${id}`);
+    } catch {
+      return localDb.getEntry(id);
+    }
   }
 
   public async createEntry(data: Partial<DiaryEntry>): Promise<DiaryEntry> {
-    return this.request<DiaryEntry>('/entries', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
+    try {
+      return await this.request<DiaryEntry>('/entries', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    } catch {
+      return localDb.createEntry(data);
+    }
   }
 
   public async updateEntry(id: string, data: Partial<DiaryEntry>): Promise<DiaryEntry> {
-    return this.request<DiaryEntry>(`/entries/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
+    try {
+      return await this.request<DiaryEntry>(`/entries/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    } catch {
+      return localDb.updateEntry(id, data);
+    }
   }
 
   public async deleteEntry(id: string): Promise<{ success: boolean }> {
-    return this.request<{ success: boolean }>(`/entries/${id}`, {
-      method: 'DELETE'
-    });
+    try {
+      return await this.request<{ success: boolean }>(`/entries/${id}`, {
+        method: 'DELETE'
+      });
+    } catch {
+      return localDb.deleteEntry(id);
+    }
   }
 
   public async reorderEntries(order: { id: string; pageOrder: number }[]): Promise<{ success: boolean }> {
-    return this.request<{ success: boolean }>('/entries-order', {
-      method: 'PUT',
-      body: JSON.stringify({ order })
-    });
+    try {
+      return await this.request<{ success: boolean }>('/entries-order', {
+        method: 'PUT',
+        body: JSON.stringify({ order })
+      });
+    } catch {
+      return localDb.reorderEntries(order);
+    }
   }
 
   // Settings
   public async getSettings(): Promise<DiarySettings> {
-    return this.request<DiarySettings>('/settings');
+    try {
+      return await this.request<DiarySettings>('/settings');
+    } catch {
+      return localDb.getSettings();
+    }
   }
 
   public async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
-    return this.request<DiarySettings>('/settings', {
-      method: 'PUT',
-      body: JSON.stringify(updates)
-    });
+    try {
+      return await this.request<DiarySettings>('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      });
+    } catch {
+      return localDb.updateSettings(updates);
+    }
   }
 
   // Stats
   public async getStats(): Promise<DashboardStats> {
-    return this.request<DashboardStats>('/stats');
+    try {
+      return await this.request<DashboardStats>('/stats');
+    } catch {
+      return localDb.getStats();
+    }
   }
 
   // Media
   public async getMedia(): Promise<MediaItem[]> {
-    return this.request<MediaItem[]>('/media');
+    try {
+      return await this.request<MediaItem[]>('/media');
+    } catch {
+      return localDb.getMedia();
+    }
   }
 
   public async uploadMedia(file: File): Promise<MediaItem> {
-    const formData = new FormData();
-    formData.append('image', file);
-    return this.request<MediaItem>('/media/upload', {
-      method: 'POST',
-      body: formData
-    });
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      return await this.request<MediaItem>('/media/upload', {
+        method: 'POST',
+        body: formData
+      });
+    } catch {
+      return await localDb.uploadMedia(file);
+    }
   }
 
   public async deleteMedia(id: string): Promise<{ success: boolean }> {
-    return this.request<{ success: boolean }>(`/media/${id}`, {
-      method: 'DELETE'
-    });
+    try {
+      return await this.request<{ success: boolean }>(`/media/${id}`, {
+        method: 'DELETE'
+      });
+    } catch {
+      return localDb.deleteMedia(id);
+    }
   }
 }
 
