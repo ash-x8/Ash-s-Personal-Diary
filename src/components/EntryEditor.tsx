@@ -387,6 +387,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             </label>
             <input
               type="text"
+              dir="ltr"
+              style={{ textAlign: 'left' }}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. A Quiet Night, Things I Never Said…"
@@ -486,9 +488,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             <div
               ref={contentEditorRef}
               contentEditable
+              dir="ltr"
+              style={{ textAlign: 'left' }}
               dangerouslySetInnerHTML={{ __html: content }}
               onInput={() => {
-                if (contentEditorRef.current) {
+                if (!isComposingRef.current && contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);
                 }
               }}

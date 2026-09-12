@@ -77,7 +77,27 @@ export function App() {
     });
 
     const unsubEntries = subscribeToEntries((fetchedEntries) => {
-      setEntries(fetchedEntries);
+      const activeEl = document.activeElement;
+      const isEditing = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.getAttribute('contenteditable') === 'true'
+      );
+
+      // If active user is typing in editor or input, avoid overwriting state that causes re-renders and cursor jumping
+      if (isEditing) {
+        setEntries((prevEntries) => {
+          if (!prevEntries || prevEntries.length === 0) return fetchedEntries;
+          const isSame = prevEntries.length === fetchedEntries.length &&
+            prevEntries.every((item, index) => {
+              const f = fetchedEntries[index];
+              return f && f.id === item.id && f.updatedAt === item.updatedAt;
+            });
+          return isSame ? prevEntries : fetchedEntries;
+        });
+      } else {
+        setEntries(fetchedEntries);
+      }
     });
 
     const unsubMedia = subscribeToMedia((fetchedMedia) => {
