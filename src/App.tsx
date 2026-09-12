@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from './services/api';
 import { soundService } from './services/sound';
+import { subscribeToEntries, subscribeToSettings, subscribeToMedia } from './services/firebase';
 import { ClosedBookAccess } from './components/ClosedBookAccess';
 import { BookReader } from './components/BookReader';
 import { EditorDashboard } from './components/EditorDashboard';
@@ -49,23 +50,55 @@ export function App() {
   });
 
   const [media, setMedia] = useState<MediaItem[]>([]);
-  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
-  // Initialize session and book data
+  // Calculate dashboard stats from entries array
+  useEffect(() => {
+    const published = entries.filter((e) => e.status === 'published').length;
+    const drafts = entries.filter((e) => e.status === 'draft').length;
+    const now = new Date();
+    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonth = entries.filter((e) => (e.date || '').startsWith(currentMonthPrefix)).length;
+
+    setStats({
+      totalEntries: entries.length,
+      published,
+      drafts,
+      thisMonth,
+      totalPages: published * 2 + 2,
+      lastUpdated: new Date().toISOString()
+    });
+  }, [entries]);
+
+  // Real-time Firestore subscriptions for live cross-device sync
+  useEffect(() => {
+    const unsubSettings = subscribeToSettings((updatedSettings) => {
+      setSettings(updatedSettings);
+      soundService.setEnabled(updatedSettings.soundEnabled !== false);
+    });
+
+    const unsubEntries = subscribeToEntries((fetchedEntries) => {
+      setEntries(fetchedEntries);
+    });
+
+    const unsubMedia = subscribeToMedia((fetchedMedia) => {
+      setMedia(fetchedMedia);
+    });
+
+    return () => {
+      unsubSettings();
+      unsubEntries();
+      unsubMedia();
+    };
+  }, []);
+
+  // Initialize session
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Check active session
         const currentSession = await api.getSession();
         setSession(currentSession);
 
-        // Fetch settings
-        const loadedSettings = await api.getSettings();
-        setSettings(loadedSettings);
-        soundService.setEnabled(loadedSettings.soundEnabled !== false);
-
         if (currentSession.authenticated && currentSession.role) {
-          await loadDataForRole(currentSession.role);
           setActiveView(currentSession.role === 'EDITOR' ? 'editor' : 'reader');
         } else {
           setActiveView('closed-book');
@@ -80,69 +113,15 @@ export function App() {
     initApp();
   }, []);
 
-  // Cross-device synchronization: Listen for focus, visibility change, and periodic polling
-  useEffect(() => {
-    const syncData = async () => {
-      try {
-        const curSession = await api.getSession();
-        if (curSession.authenticated && curSession.role) {
-          await loadDataForRole(curSession.role);
-        }
-      } catch (e) {
-        console.warn('Sync check skipped:', e);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        syncData();
-      }
-    };
-
-    const handleFocus = () => {
-      syncData();
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-
-    // Poll every 10 seconds when tab is visible to sync cross-device updates automatically
-    const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        syncData();
-      }
-    }, 10000);
-
-    return () => {
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      clearInterval(pollInterval);
-    };
-  }, [session.authenticated, session.role]);
-
-  const loadDataForRole = async (role: UserRole) => {
-    try {
-      const entryList = await api.getEntries();
-      setEntries(entryList);
-
-      if (role === 'EDITOR') {
-        const [dashboardStats, mediaList] = await Promise.all([
-          api.getStats(),
-          api.getMedia()
-        ]);
-        setStats(dashboardStats);
-        setMedia(mediaList);
-      }
-    } catch (err: any) {
-      setErrorNotice(err.message || 'Error loading diary records.');
-    }
-  };
+  // Filter visible entries based on session role
+  const visibleEntries = session.role === 'READER'
+    ? entries.filter(e => e.status === 'published')
+    : entries;
 
   // Handle access code unlock from Closed Book
   const handleUnlockCode = async (code: string) => {
     const res = await api.unlock(code);
     setSession({ authenticated: true, role: res.role });
-    await loadDataForRole(res.role);
     return res;
   };
 
@@ -165,51 +144,33 @@ export function App() {
     setActiveView('closed-book');
   };
 
-  // CRUD actions for Editor
+  // CRUD actions for Editor (real-time listeners automatically update state)
   const handleSaveEntry = async (entryData: Partial<DiaryEntry>, _publish: boolean, existingId?: string): Promise<DiaryEntry> => {
-    let saved: DiaryEntry;
     if (existingId) {
-      saved = await api.updateEntry(existingId, entryData);
+      return await api.updateEntry(existingId, entryData);
     } else {
-      saved = await api.createEntry(entryData);
+      return await api.createEntry(entryData);
     }
-    if (session.role) {
-      await loadDataForRole(session.role);
-    }
-    return saved;
   };
 
   const handleDeleteEntry = async (id: string) => {
     await api.deleteEntry(id);
-    if (session.role) {
-      await loadDataForRole(session.role);
-    }
   };
 
   const handleReorderEntries = async (order: { id: string; pageOrder: number }[]) => {
     await api.reorderEntries(order);
-    if (session.role) {
-      await loadDataForRole(session.role);
-    }
   };
 
   const handleSaveSettings = async (updates: Partial<DiarySettings>) => {
-    const updated = await api.updateSettings(updates);
-    setSettings(updated);
-    if (updates.soundEnabled !== undefined) {
-      soundService.setEnabled(updates.soundEnabled);
-    }
+    await api.updateSettings(updates);
   };
 
   const handleUploadMedia = async (file: File) => {
-    const item = await api.uploadMedia(file);
-    setMedia([item, ...media]);
-    return item;
+    return await api.uploadMedia(file);
   };
 
   const handleDeleteMedia = async (id: string) => {
     await api.deleteMedia(id);
-    setMedia(media.filter(m => m.id !== id));
   };
 
   // Loading Screen (Requirement 29)
@@ -248,7 +209,7 @@ export function App() {
       {/* View 2: Digital Book Reader (Reader Mode) */}
       {activeView === 'reader' && (
         <BookReader
-          entries={entries}
+          entries={visibleEntries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}
@@ -276,7 +237,7 @@ export function App() {
       {/* View 4: Editor Live Book Preview (Testing Mode) */}
       {activeView === 'preview' && (
         <BookReader
-          entries={entries}
+          entries={visibleEntries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}
