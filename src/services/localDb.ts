@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
   MEDIA: 'ash_diary_media'
 };
 
-const DEFAULT_SETTINGS: DiarySettings = {
+export const DEFAULT_SETTINGS: DiarySettings = {
   title: "Ash's Personal Diary",
   subtitle: "Private Journal",
   coverText: "ASH'S PERSONAL DIARY",
@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: DiarySettings = {
   lastUpdated: new Date().toISOString()
 };
 
-const DEFAULT_ENTRIES: DiaryEntry[] = [
+export const DEFAULT_ENTRIES: DiaryEntry[] = [
   {
     id: "entry-01",
     title: "The Beginning",
