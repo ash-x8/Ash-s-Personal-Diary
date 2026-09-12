@@ -53,7 +53,11 @@ export function verifySessionToken(token: string): TokenPayload | null {
       .update(payloadB64)
       .digest('base64url');
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSig);
+
+    // Timing-safe comparison requiring equal buffer lengths to prevent exceptions
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
       return null;
     }
 

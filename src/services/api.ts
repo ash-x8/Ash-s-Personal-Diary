@@ -7,6 +7,15 @@ import {
   UserRole
 } from '../types/index';
 import { localDb } from './localDb';
+import {
+  createFirestoreEntry,
+  updateFirestoreEntry,
+  deleteFirestoreEntry,
+  reorderFirestoreEntries,
+  updateFirestoreSettings,
+  addFirestoreMedia,
+  deleteFirestoreMedia
+} from './firebase';
 
 const API_BASE = '/api';
 
@@ -134,27 +143,15 @@ class ApiClient {
   // Entries
   public async getEntries(): Promise<DiaryEntry[]> {
     try {
-      const serverEntries = await this.request<DiaryEntry[]>('/entries');
-      return serverEntries;
+      return await createFirestoreEntry ? localDb.getEntries() : [];
     } catch {
       return localDb.getEntries();
     }
   }
 
-  public async getEntry(id: string): Promise<DiaryEntry> {
-    try {
-      return await this.request<DiaryEntry>(`/entries/${id}`);
-    } catch {
-      return localDb.getEntry(id);
-    }
-  }
-
   public async createEntry(data: Partial<DiaryEntry>): Promise<DiaryEntry> {
     try {
-      return await this.request<DiaryEntry>('/entries', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      return await createFirestoreEntry(data);
     } catch {
       return localDb.createEntry(data);
     }
@@ -162,10 +159,7 @@ class ApiClient {
 
   public async updateEntry(id: string, data: Partial<DiaryEntry>): Promise<DiaryEntry> {
     try {
-      return await this.request<DiaryEntry>(`/entries/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
+      return await updateFirestoreEntry(id, data);
     } catch {
       return localDb.updateEntry(id, data);
     }
@@ -173,9 +167,8 @@ class ApiClient {
 
   public async deleteEntry(id: string): Promise<{ success: boolean }> {
     try {
-      return await this.request<{ success: boolean }>(`/entries/${id}`, {
-        method: 'DELETE'
-      });
+      await deleteFirestoreEntry(id);
+      return { success: true };
     } catch {
       return localDb.deleteEntry(id);
     }
@@ -183,61 +176,28 @@ class ApiClient {
 
   public async reorderEntries(order: { id: string; pageOrder: number }[]): Promise<{ success: boolean }> {
     try {
-      return await this.request<{ success: boolean }>('/entries-order', {
-        method: 'PUT',
-        body: JSON.stringify({ order })
-      });
+      await reorderFirestoreEntries(order);
+      return { success: true };
     } catch {
       return localDb.reorderEntries(order);
     }
   }
 
   // Settings
-  public async getSettings(): Promise<DiarySettings> {
-    try {
-      return await this.request<DiarySettings>('/settings');
-    } catch {
-      return localDb.getSettings();
-    }
-  }
-
   public async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
     try {
-      return await this.request<DiarySettings>('/settings', {
-        method: 'PUT',
-        body: JSON.stringify(updates)
-      });
+      return await updateFirestoreSettings(updates);
     } catch {
       return localDb.updateSettings(updates);
     }
   }
 
-  // Stats
-  public async getStats(): Promise<DashboardStats> {
-    try {
-      return await this.request<DashboardStats>('/stats');
-    } catch {
-      return localDb.getStats();
-    }
-  }
-
   // Media
-  public async getMedia(): Promise<MediaItem[]> {
-    try {
-      return await this.request<MediaItem[]>('/media');
-    } catch {
-      return localDb.getMedia();
-    }
-  }
-
   public async uploadMedia(file: File): Promise<MediaItem> {
     try {
-      const formData = new FormData();
-      formData.append('image', file);
-      return await this.request<MediaItem>('/media/upload', {
-        method: 'POST',
-        body: formData
-      });
+      const item = await localDb.uploadMedia(file);
+      await addFirestoreMedia(item);
+      return item;
     } catch {
       return await localDb.uploadMedia(file);
     }
@@ -245,9 +205,8 @@ class ApiClient {
 
   public async deleteMedia(id: string): Promise<{ success: boolean }> {
     try {
-      return await this.request<{ success: boolean }>(`/media/${id}`, {
-        method: 'DELETE'
-      });
+      await deleteFirestoreMedia(id);
+      return { success: true };
     } catch {
       return localDb.deleteMedia(id);
     }
