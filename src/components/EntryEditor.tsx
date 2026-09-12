@@ -82,6 +82,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   const contentEditorRef = useRef<HTMLDivElement>(null);
   const isInitialMount = useRef(true);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isComposingRef = useRef(false);
 
   // Apply rich-text command
   const formatDoc = (cmd: string, val: string | undefined = undefined) => {
@@ -127,7 +128,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
 
   // Execute silent background auto-save
   const performAutoSave = useCallback(async () => {
-    if (!title.trim() || isSubmitting) return;
+    if (!title.trim() || isSubmitting || isComposingRef.current) return;
     const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
     if (!currentHTML || currentHTML === '<p></p>' || currentHTML.trim() === '') return;
 
@@ -148,10 +149,46 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     }
   }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId]);
 
+  // Setup compositionstart and compositionend event listeners for Sinhala / IME support
+  useEffect(() => {
+    const el = contentEditorRef.current;
+    if (!el) return;
+
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      isComposingRef.current = false;
+      if (contentEditorRef.current) {
+        setContent(contentEditorRef.current.innerHTML);
+      }
+      // Schedule post-composition auto-save
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+      autoSaveTimerRef.current = setTimeout(() => {
+        performAutoSave();
+      }, 500);
+    };
+
+    el.addEventListener('compositionstart', handleCompositionStart);
+    el.addEventListener('compositionend', handleCompositionEnd);
+
+    return () => {
+      el.removeEventListener('compositionstart', handleCompositionStart);
+      el.removeEventListener('compositionend', handleCompositionEnd);
+    };
+  }, [performAutoSave]);
+
   // Debounced auto-save effect whenever inputs change
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
+      return;
+    }
+
+    if (isComposingRef.current) {
       return;
     }
 
@@ -163,7 +200,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
 
     autoSaveTimerRef.current = setTimeout(() => {
       performAutoSave();
-    }, 1500);
+    }, 1000);
 
     return () => {
       if (autoSaveTimerRef.current) {
@@ -173,16 +210,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, performAutoSave]);
 
   const handleSave = async (shouldPublish: boolean) => {
-    if (!title.trim()) {
-      alert('Please provide a title for the entry.');
-      return;
-    }
-
+    const saveTitle = title.trim() || 'Untitled Entry';
     const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
-    if (!currentHTML.trim() || currentHTML === '<p></p>') {
-      alert('Please write some thoughts for the entry.');
-      return;
-    }
 
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
@@ -196,11 +225,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         .map(t => t.trim().replace(/^#/, ''))
         .filter(Boolean);
 
-      await onSave(
+      const result = await onSave(
         {
-          title: title.trim(),
+          title: saveTitle,
           date,
-          content: currentHTML,
+          content: currentHTML || '<p></p>',
           mood: mood.trim() || undefined,
           location: location.trim() || undefined,
           tags: parsedTags,
@@ -213,6 +242,9 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         shouldPublish,
         currentId
       );
+      if (result && result.id) {
+        setCurrentId(result.id);
+      }
       setAutoSaveStatus('saved');
     } catch (err: any) {
       alert(err.message || 'Error saving entry.');
@@ -350,6 +382,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             </label>
             <input
               type="text"
+              dir="ltr"
+              style={{ textAlign: 'left' }}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. A Quiet Night, Things I Never Said…"
@@ -449,9 +483,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             <div
               ref={contentEditorRef}
               contentEditable
+              dir="ltr"
+              style={{ textAlign: 'left' }}
               dangerouslySetInnerHTML={{ __html: content }}
               onInput={() => {
-                if (contentEditorRef.current) {
+                if (!isComposingRef.current && contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);
                 }
               }}
