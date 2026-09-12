@@ -22,12 +22,17 @@ import {
   ArrowUpDown,
   Sparkles,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  FileDown,
+  Printer,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { DiaryEntry, DiarySettings, DashboardStats, MediaItem } from '../types';
 import { EntryEditor } from './EntryEditor';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { SettingsPanel } from './SettingsPanel';
+import { PdfExportModal } from './PdfExportModal';
 
 interface EditorDashboardProps {
   entries: DiaryEntry[];
@@ -68,6 +73,9 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
   const [sortBy, setSortBy] = useState<'order' | 'date-desc' | 'date-asc' | 'title'>('order');
   const [showMediaModal, setShowMediaModal] = useState(false);
+  const [showPdfExportModal, setShowPdfExportModal] = useState(false);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+  const [pdfModalInitialIds, setPdfModalInitialIds] = useState<string[] | undefined>(undefined);
 
   // Filtered & sorted entries
   const filteredEntries = entries
@@ -168,6 +176,55 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
     await onReorderEntries(newOrders);
   };
 
+  // PDF Export Handlers
+  const handleOpenPdfExport = (specificIds?: string[]) => {
+    if (specificIds && specificIds.length > 0) {
+      setPdfModalInitialIds(specificIds);
+    } else if (selectedEntryIds.size > 0) {
+      setPdfModalInitialIds(Array.from(selectedEntryIds));
+    } else {
+      // Default to all currently filtered entries or all entries
+      const fallbackIds = filteredEntries.length > 0 ? filteredEntries.map((e) => e.id) : entries.map((e) => e.id);
+      setPdfModalInitialIds(fallbackIds);
+    }
+    setShowPdfExportModal(true);
+  };
+
+  const handleToggleEntrySelect = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllFiltered = () => {
+    const filteredIds = filteredEntries.map((e) => e.id);
+    const allSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedEntryIds.has(id));
+
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        filteredIds.forEach((id) => next.delete(id));
+      } else {
+        filteredIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedEntryIds(new Set());
+  };
+
+  const isAllFilteredSelected =
+    filteredEntries.length > 0 && filteredEntries.every((e) => selectedEntryIds.has(e.id));
+
   return (
     <div 
       id="editor-dashboard-root"
@@ -210,6 +267,23 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
           >
             <Eye className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Preview as Reader</span>
+          </button>
+
+          {/* Export PDF Header Button */}
+          <button
+            type="button"
+            id="editor-export-pdf-header-btn"
+            onClick={() => handleOpenPdfExport()}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#201f2d] hover:bg-[#2d2c3e] text-[#d4af37] hover:text-[#f5ebd7] border border-[#52462b] font-cinzel text-xs tracking-wider uppercase transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Export selected diary entries as a printable PDF manuscript"
+          >
+            <FileDown className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export PDF</span>
+            {selectedEntryIds.size > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-[#d4af37] text-black text-[10px] font-bold">
+                {selectedEntryIds.size}
+              </span>
+            )}
           </button>
 
           <button
@@ -370,13 +444,24 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                     Most recently preserved thoughts in Ash's journal
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('entries')}
-                  className="text-xs font-cinzel uppercase text-[#d4af37] hover:underline cursor-pointer"
-                >
-                  View All ({entries.length}) →
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPdfExport()}
+                    className="px-3 py-1 bg-[#201f2e] hover:bg-[#2c2b3e] text-[#d4af37] border border-[#4a4029] text-xs font-cinzel uppercase tracking-wider rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Export diary entries as a printable PDF"
+                  >
+                    <FileDown className="w-3 h-3" />
+                    <span>Export PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTab('entries')}
+                    className="text-xs font-cinzel uppercase text-[#d4af37] hover:underline cursor-pointer"
+                  >
+                    View All ({entries.length}) →
+                  </button>
+                </div>
               </div>
 
               {entries.length === 0 ? (
@@ -455,7 +540,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
 
         {/* TAB 2: ENTRIES MANAGEMENT */}
         {currentTab === 'entries' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-4 animate-fade-in">
             {/* Filter and Search Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[#14141d] border border-[#272636] rounded-xl">
               {/* Search */}
@@ -517,6 +602,62 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
               </div>
             </div>
 
+            {/* Selection & Export Action Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-[#12111a] border border-[#252433] rounded-xl">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleToggleSelectAllFiltered}
+                  className="flex items-center gap-2 text-xs font-cinzel text-[#d4af37] hover:text-[#f5ebd7] transition-colors cursor-pointer"
+                >
+                  {isAllFilteredSelected ? (
+                    <CheckSquare className="w-4 h-4 text-[#d4af37]" />
+                  ) : (
+                    <Square className="w-4 h-4 text-[#5e584c]" />
+                  )}
+                  <span>{isAllFilteredSelected ? 'Deselect All' : 'Select All Filtered'}</span>
+                </button>
+
+                {selectedEntryIds.size > 0 && (
+                  <span className="text-xs text-[#8e8779] font-serif-book">
+                    ({selectedEntryIds.size} {selectedEntryIds.size === 1 ? 'entry' : 'entries'} selected)
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {selectedEntryIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearSelection}
+                    className="px-2.5 py-1 text-xs text-[#8e8779] hover:text-[#ded8cc] font-cinzel uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    Clear Selection
+                  </button>
+                )}
+
+                {/* Main Export Selected to PDF Button */}
+                <button
+                  type="button"
+                  id="editor-export-selected-pdf-btn"
+                  onClick={() => handleOpenPdfExport()}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg font-cinzel text-xs uppercase tracking-wider transition-all cursor-pointer ${
+                    selectedEntryIds.size > 0
+                      ? 'bg-gradient-to-r from-[#8a7238] to-[#d4af37] hover:from-[#9c8240] hover:to-[#e3bd42] text-[#19140a] font-semibold shadow-md active:scale-95'
+                      : 'bg-[#1f1e2c] hover:bg-[#2b293d] text-[#d4af37] border border-[#4a4029]'
+                  }`}
+                  title="Export selected diary entries as a printable PDF"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  <span>
+                    {selectedEntryIds.size > 0
+                      ? `Export Selected (${selectedEntryIds.size}) as PDF`
+                      : 'Export to Printable PDF'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Entries List */}
             {filteredEntries.length === 0 ? (
               <div className="py-16 text-center text-[#8e8779] font-serif-book">
@@ -531,87 +672,121 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredEntries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="p-4 rounded-xl bg-[#14141d] border border-[#272636] hover:border-[#38374a] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-cinzel text-xs text-[#d4af37] font-semibold">
-                          #{entry.pageOrder}
-                        </span>
-                        <h4 className="font-serif-book text-lg font-semibold text-[#f5ebd7]">
-                          {entry.title}
-                        </h4>
+                {filteredEntries.map((entry) => {
+                  const isSelected = selectedEntryIds.has(entry.id);
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                        isSelected
+                          ? 'bg-[#181724] border-[#4e442f]'
+                          : 'bg-[#14141d] border-[#272636] hover:border-[#38374a]'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                        {/* Entry Row Checkbox */}
                         <button
                           type="button"
-                          onClick={() => handleToggleStatus(entry)}
-                          className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 active:scale-95 ${
-                            entry.status === 'published'
-                              ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/60'
-                              : 'bg-amber-950/60 text-amber-400 border border-amber-800/40 hover:bg-amber-900/60'
-                          }`}
-                          title="Click to toggle Published / Draft status (auto-saved)"
+                          onClick={(e) => handleToggleEntrySelect(entry.id, e)}
+                          className="mt-1 text-[#d4af37] hover:opacity-80 transition-opacity cursor-pointer shrink-0"
+                          title={isSelected ? 'Deselect for PDF export' : 'Select for PDF export'}
+                          aria-label={isSelected ? 'Deselect for PDF export' : 'Select for PDF export'}
                         >
-                          {entry.status}
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-[#d4af37]" />
+                          ) : (
+                            <Square className="w-4 h-4 text-[#4a475a] hover:text-[#8a8477]" />
+                          )}
                         </button>
+
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-cinzel text-xs text-[#d4af37] font-semibold">
+                              #{entry.pageOrder}
+                            </span>
+                            <h4 className="font-serif-book text-lg font-semibold text-[#f5ebd7] truncate">
+                              {entry.title}
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(entry)}
+                              className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 active:scale-95 ${
+                                entry.status === 'published'
+                                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/60'
+                                  : 'bg-amber-950/60 text-amber-400 border border-amber-800/40 hover:bg-amber-900/60'
+                              }`}
+                              title="Click to toggle Published / Draft status (auto-saved)"
+                            >
+                              {entry.status}
+                            </button>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-[#857f73]">
+                            <span>{entry.date}</span>
+                            {entry.mood && <span>• Mood: {entry.mood}</span>}
+                            {entry.location && <span>• At: {entry.location}</span>}
+                            {entry.tags.length > 0 && (
+                              <span>• Tags: {entry.tags.join(', ')}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-[#857f73]">
-                        <span>{entry.date}</span>
-                        {entry.mood && <span>• Mood: {entry.mood}</span>}
-                        {entry.location && <span>• At: {entry.location}</span>}
-                        {entry.tags.length > 0 && (
-                          <span>• Tags: {entry.tags.join(', ')}</span>
-                        )}
+                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        {/* Quick page ordering controls */}
+                        <div className="flex items-center bg-[#1a1924] border border-[#2b2a3a] rounded-lg p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveOrder(entry, 'up')}
+                            className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
+                            title="Move earlier in book"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMoveOrder(entry, 'down')}
+                            className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
+                            title="Move later in book"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Export single entry button */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPdfExport([entry.id])}
+                          className="p-2 rounded-lg bg-[#22212f] hover:bg-[#2d2b40] text-[#7a7467] hover:text-[#d4af37] transition-colors cursor-pointer"
+                          title="Export this entry to PDF"
+                        >
+                          <FileDown className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(entry)}
+                          className="px-3.5 py-1.5 rounded-lg bg-[#22212f] hover:bg-[#2d2c3e] text-xs font-cinzel uppercase tracking-wider text-[#ded8cc] transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" /> Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Delete entry "${entry.title}"?`)) {
+                              handleDeleteEntry(entry.id);
+                            }
+                          }}
+                          className="p-2 rounded-lg bg-[#22212f] hover:bg-rose-950/50 hover:text-rose-400 text-[#7a7467] transition-colors cursor-pointer"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-center">
-                      {/* Quick page ordering controls */}
-                      <div className="flex items-center bg-[#1a1924] border border-[#2b2a3a] rounded-lg p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleMoveOrder(entry, 'up')}
-                          className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
-                          title="Move earlier in book"
-                        >
-                          <ChevronUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMoveOrder(entry, 'down')}
-                          className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
-                          title="Move later in book"
-                        >
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(entry)}
-                        className="px-3.5 py-1.5 rounded-lg bg-[#22212f] hover:bg-[#2d2c3e] text-xs font-cinzel uppercase tracking-wider text-[#ded8cc] transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" /> Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Delete entry "${entry.title}"?`)) {
-                            handleDeleteEntry(entry.id);
-                          }
-                        }}
-                        className="p-2 rounded-lg bg-[#22212f] hover:bg-rose-950/50 hover:text-rose-400 text-[#7a7467] transition-colors cursor-pointer"
-                        title="Delete entry"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -649,6 +824,15 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
           onClose={() => setShowMediaModal(false)}
         />
       )}
+
+      {/* Printable PDF Export Modal */}
+      <PdfExportModal
+        isOpen={showPdfExportModal}
+        onClose={() => setShowPdfExportModal(false)}
+        entries={entries}
+        settings={settings}
+        preSelectedIds={pdfModalInitialIds}
+      />
     </div>
   );
 };
