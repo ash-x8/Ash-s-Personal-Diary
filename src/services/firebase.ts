@@ -28,7 +28,7 @@ export const app = initializeApp(firebaseConfig);
 export const firestore = getFirestore(app);
 
 // Collection References
-const ENTRIES_COLLECTION = 'entries';
+const ENTRIES_COLLECTION = 'diary_pages';
 const SETTINGS_COLLECTION = 'settings';
 const MEDIA_COLLECTION = 'media';
 const SETTINGS_DOC_ID = 'app_settings';

@@ -53,7 +53,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
         onUnlock(result.role);
       }, 1100);
     } catch (err: any) {
-      setError(err.message || 'Invalid passcode.');
+      setError(err.message || 'Invalid access PIN.');
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 600);
     } finally {
@@ -167,7 +167,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                   htmlFor="access-code-input"
                   className="text-[11px] tracking-[0.2em] text-[#91897b] uppercase font-medium"
                 >
-                  Passcode
+                  Access PIN
                 </label>
               </div>
 
@@ -188,7 +188,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                     setCode(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder="Enter Passcode"
+                  placeholder="Enter Access PIN"
                   className="w-full h-12 bg-[#0a0a0d] border border-[#38332c] focus:border-[#d4af37]/70 rounded-lg pl-10 pr-11 text-center font-mono text-lg tracking-[0.35em] text-[#f4eedf] placeholder-[#5c5446] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30 transition-colors"
                   style={{ WebkitTextSecurity: showCode ? 'none' : 'disc' } as React.CSSProperties}
                   aria-invalid={!!error}
@@ -201,8 +201,8 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                   id="toggle-code-visibility-btn"
                   onClick={() => setShowCode(!showCode)}
                   className="absolute right-3 p-1.5 text-[#857b6b] hover:text-[#d4af37] transition-colors rounded"
-                  aria-label={showCode ? "Hide passcode" : "Show passcode"}
-                  title={showCode ? "Hide passcode" : "Show passcode"}
+                  aria-label={showCode ? "Hide PIN" : "Show PIN"}
+                  title={showCode ? "Hide PIN" : "Show PIN"}
                 >
                   {showCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
