@@ -14,7 +14,10 @@ import {
   reorderFirestoreEntries,
   updateFirestoreSettings,
   addFirestoreMedia,
-  deleteFirestoreMedia
+  deleteFirestoreMedia,
+  fetchAllEntriesFromFirestore,
+  fetchSettingsFromFirestore,
+  fetchMediaFromFirestore
 } from './firebase';
 
 const API_BASE = '/api';
@@ -143,9 +146,19 @@ class ApiClient {
   // Entries
   public async getEntries(): Promise<DiaryEntry[]> {
     try {
-      return await createFirestoreEntry ? localDb.getEntries() : [];
+      const fsEntries = await fetchAllEntriesFromFirestore();
+      if (fsEntries && fsEntries.length > 0) return fsEntries;
+      return await this.request<DiaryEntry[]>('/entries');
     } catch {
       return localDb.getEntries();
+    }
+  }
+
+  public async getEntry(id: string): Promise<DiaryEntry> {
+    try {
+      return await this.request<DiaryEntry>(`/entries/${id}`);
+    } catch {
+      return localDb.getEntry(id);
     }
   }
 
@@ -184,6 +197,16 @@ class ApiClient {
   }
 
   // Settings
+  public async getSettings(): Promise<DiarySettings> {
+    try {
+      const fsSettings = await fetchSettingsFromFirestore();
+      if (fsSettings) return fsSettings;
+      return await this.request<DiarySettings>('/settings');
+    } catch {
+      return localDb.getSettings();
+    }
+  }
+
   public async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
     try {
       return await updateFirestoreSettings(updates);
@@ -192,7 +215,26 @@ class ApiClient {
     }
   }
 
+  // Stats
+  public async getStats(): Promise<DashboardStats> {
+    try {
+      return await this.request<DashboardStats>('/stats');
+    } catch {
+      return localDb.getStats();
+    }
+  }
+
   // Media
+  public async getMedia(): Promise<MediaItem[]> {
+    try {
+      const fsMedia = await fetchMediaFromFirestore();
+      if (fsMedia && fsMedia.length > 0) return fsMedia;
+      return await this.request<MediaItem[]>('/media');
+    } catch {
+      return localDb.getMedia();
+    }
+  }
+
   public async uploadMedia(file: File): Promise<MediaItem> {
     try {
       const item = await localDb.uploadMedia(file);

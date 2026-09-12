@@ -387,3 +387,79 @@ export function subscribeToMedia(
     }
   );
 }
+
+/**
+ * Fetch settings from Firestore
+ */
+export async function fetchSettingsFromFirestore(): Promise<DiarySettings | null> {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'general'));
+    if (snap.exists()) {
+      return snap.data() as DiarySettings;
+    }
+    return null;
+  } catch (err) {
+    console.warn('Fetch settings error:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch media from Firestore
+ */
+export async function fetchMediaFromFirestore(): Promise<MediaItem[]> {
+  try {
+    const snap = await getDocs(collection(db, 'media'));
+    const items: MediaItem[] = [];
+    snap.forEach((d) => items.push(d.data() as MediaItem));
+    return items.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+  } catch (err) {
+    console.warn('Fetch media error:', err);
+    return [];
+  }
+}
+
+/**
+ * Save media item to Firestore
+ */
+export async function addFirestoreMedia(item: MediaItem): Promise<void> {
+  const docRef = doc(db, 'media', item.id);
+  await setDoc(docRef, cleanFirestoreData(item), { merge: true });
+}
+
+/**
+ * Delete media item from Firestore
+ */
+export async function deleteFirestoreMedia(id: string): Promise<void> {
+  const docRef = doc(db, 'media', id);
+  await deleteDoc(docRef);
+}
+
+/**
+ * Aliases for direct Firestore Entry CRUD
+ */
+export async function createFirestoreEntry(data: Partial<DiaryEntry>): Promise<DiaryEntry> {
+  return handleAddPage(data);
+}
+
+export async function updateFirestoreEntry(id: string, data: Partial<DiaryEntry>): Promise<DiaryEntry> {
+  return saveEntryToFirestore(data, id);
+}
+
+export async function deleteFirestoreEntry(id: string): Promise<void> {
+  return deleteEntryFromFirestore(id);
+}
+
+export async function reorderFirestoreEntries(order: { id: string; pageOrder: number }[]): Promise<void> {
+  return reorderEntriesInFirestore(order);
+}
+
+export async function updateFirestoreSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
+  await saveSettingsToFirestore(updates);
+  const snap = await getDoc(doc(db, 'settings', 'general'));
+  if (snap.exists()) {
+    return snap.data() as DiarySettings;
+  }
+  return { ...updates } as DiarySettings;
+}
+
