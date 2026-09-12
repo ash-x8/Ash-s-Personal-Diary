@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   BookOpen,
   FileText,
@@ -65,30 +65,32 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const [sortBy, setSortBy] = useState<'order' | 'date-desc' | 'date-asc' | 'title'>('order');
   const [showMediaModal, setShowMediaModal] = useState(false);
 
-  // Filtered & sorted entries
-  const filteredEntries = entries
-    .filter((e) => {
-      if (filterStatus === 'published') return e.status === 'published';
-      if (filterStatus === 'draft') return e.status === 'draft';
-      return true;
-    })
-    .filter((e) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        e.title.toLowerCase().includes(q) ||
-        e.content.toLowerCase().includes(q) ||
-        (e.mood && e.mood.toLowerCase().includes(q)) ||
-        e.tags.some(t => t.toLowerCase().includes(q))
-      );
-    })
-    .sort((a, b) => {
-      if (sortBy === 'order') return (a.pageOrder || 0) - (b.pageOrder || 0);
-      if (sortBy === 'date-desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (sortBy === 'date-asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (sortBy === 'title') return a.title.localeCompare(b.title);
-      return 0;
-    });
+  // Filtered & sorted entries memoized to avoid redundant computation on unrelated state changes
+  const filteredEntries = useMemo(() => {
+    return entries
+      .filter((e) => {
+        if (filterStatus === 'published') return e.status === 'published';
+        if (filterStatus === 'draft') return e.status === 'draft';
+        return true;
+      })
+      .filter((e) => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (
+          e.title.toLowerCase().includes(q) ||
+          e.content.toLowerCase().includes(q) ||
+          (e.mood && e.mood.toLowerCase().includes(q)) ||
+          e.tags.some(t => t.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) => {
+        if (sortBy === 'order') return (a.pageOrder || 0) - (b.pageOrder || 0);
+        if (sortBy === 'date-desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (sortBy === 'date-asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (sortBy === 'title') return a.title.localeCompare(b.title);
+        return 0;
+      });
+  }, [entries, filterStatus, searchQuery, sortBy]);
 
   const handleStartCreate = () => {
     setEditingEntry(null);

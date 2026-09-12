@@ -116,11 +116,13 @@ export const BookPageContainer: React.FC<BookPageProps> = ({
    INSIDE TITLE / PROLOGUE PAGE
    ========================================================================== */
 
-export const BookTitlePage: React.FC<{
+interface BookTitlePageProps {
   settings: DiarySettings;
   authorName?: string;
   totalEntries: number;
-}> = ({ settings, authorName = 'ASH-X8', totalEntries }) => {
+}
+
+const BookTitlePageComponent: React.FC<BookTitlePageProps> = ({ settings, authorName = 'ASH-X8', totalEntries }) => {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center p-4">
       <div className="w-12 h-12 rounded-full border border-current opacity-30 flex items-center justify-center mb-6">
@@ -149,15 +151,18 @@ export const BookTitlePage: React.FC<{
     </div>
   );
 };
+export const BookTitlePage = React.memo(BookTitlePageComponent);
 
 /* ==========================================================================
    TABLE OF CONTENTS PAGE
    ========================================================================== */
 
-export const BookTableOfContents: React.FC<{
+interface BookTableOfContentsProps {
   entries: DiaryEntry[];
   onSelectEntry: (index: number) => void;
-}> = ({ entries, onSelectEntry }) => {
+}
+
+const BookTableOfContentsComponent: React.FC<BookTableOfContentsProps> = ({ entries, onSelectEntry }) => {
   return (
     <div className="h-full flex flex-col justify-start">
       <div className="text-center pb-5 mb-4 border-b border-current opacity-30">
@@ -225,15 +230,18 @@ export const BookTableOfContents: React.FC<{
     </div>
   );
 };
+export const BookTableOfContents = React.memo(BookTableOfContentsComponent);
 
 /* ==========================================================================
    ENTRY SPREAD (LEFT PAGE: HERO & METADATA)
    ========================================================================== */
 
-export const BookEntryLeftPage: React.FC<{
+interface BookEntryLeftPageProps {
   entry: DiaryEntry;
   entryIndex: number;
-}> = ({ entry, entryIndex }) => {
+}
+
+const BookEntryLeftPageComponent: React.FC<BookEntryLeftPageProps> = ({ entry, entryIndex }) => {
   const formattedDate = new Date(entry.date).toLocaleDateString('en-US', {
     weekday: 'long',
     day: 'numeric',
@@ -318,14 +326,17 @@ export const BookEntryLeftPage: React.FC<{
     </div>
   );
 };
+export const BookEntryLeftPage = React.memo(BookEntryLeftPageComponent);
 
 /* ==========================================================================
    ENTRY SPREAD (RIGHT PAGE: RICH TEXT BODY & GALLERY)
    ========================================================================== */
 
-export const BookEntryRightPage: React.FC<{
+interface BookEntryRightPageProps {
   entry: DiaryEntry;
-}> = ({ entry }) => {
+}
+
+const BookEntryRightPageComponent: React.FC<BookEntryRightPageProps> = ({ entry }) => {
   return (
     <div className="h-full flex flex-col justify-between">
       {/* Editorial Content */}
@@ -363,3 +374,4 @@ export const BookEntryRightPage: React.FC<{
     </div>
   );
 };
+export const BookEntryRightPage = React.memo(BookEntryRightPageComponent);
