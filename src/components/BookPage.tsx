@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Smile, Tag, Calendar, Sparkles } from 'lucide-react';
+import { MapPin, Smile, Tag, Calendar, Sparkles, Lock } from 'lucide-react';
 import { DiaryEntry, DiarySettings } from '../types';
 
 interface BookPageProps {
@@ -205,6 +205,11 @@ const BookTableOfContentsComponent: React.FC<BookTableOfContentsProps> = ({ entr
                     <span className="font-serif-book text-base sm:text-lg font-medium group-hover:underline underline-offset-4 truncate">
                       {entry.title}
                     </span>
+                    {entry.isSecret && (
+                      <span className="inline-flex items-center gap-1 text-[9px] text-[#d4af37] font-cinzel uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#d4af37]/10 border border-[#d4af37]/30 shrink-0">
+                        <Lock className="w-2.5 h-2.5" /> Secret
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] font-sans opacity-60 ml-6">
                     {formattedDate} {entry.mood && `• ${entry.mood}`}

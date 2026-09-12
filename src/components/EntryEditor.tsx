@@ -14,7 +14,10 @@ import {
   Check,
   Loader2,
   CloudCheck,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  KeyRound,
+  Sparkles
 } from 'lucide-react';
 import { DiaryEntry } from '../types';
 import { MediaLibraryModal } from './MediaLibraryModal';
@@ -71,6 +74,9 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   const [customPageNumber, setCustomPageNumber] = useState<string>(
     initialEntry?.customPageNumber ? String(initialEntry.customPageNumber) : ''
   );
+  const [isSecret, setIsSecret] = useState<boolean>(initialEntry?.isSecret || false);
+  const [secretPasscode, setSecretPasscode] = useState<string>(initialEntry?.secretPasscode || '');
+  const [secretHint, setSecretHint] = useState<string>(initialEntry?.secretHint || '');
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -109,6 +115,9 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       if (liveEntry.gallery) setGallery(liveEntry.gallery);
       if (liveEntry.pageOrder) setPageOrder(liveEntry.pageOrder);
       if (liveEntry.customPageNumber) setCustomPageNumber(String(liveEntry.customPageNumber));
+      if (liveEntry.isSecret !== undefined) setIsSecret(liveEntry.isSecret);
+      if (liveEntry.secretPasscode !== undefined) setSecretPasscode(liveEntry.secretPasscode);
+      if (liveEntry.secretHint !== undefined) setSecretHint(liveEntry.secretHint);
     });
 
     return () => {
@@ -135,9 +144,12 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       gallery,
       status,
       pageOrder: Number(pageOrder) || 1,
-      customPageNumber: customPageNumber ? Number(customPageNumber) : undefined
+      customPageNumber: customPageNumber ? Number(customPageNumber) : undefined,
+      isSecret,
+      secretPasscode: isSecret ? secretPasscode.trim() : undefined,
+      secretHint: isSecret ? secretHint.trim() : undefined
     };
-  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber]);
+  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, isSecret, secretPasscode, secretHint]);
 
   // Execute Firestore dynamic sync (debounced 500ms post-keystroke)
   const performDynamicSync = useCallback(async () => {
@@ -565,6 +577,82 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Secret Page Protection */}
+          <div className="bg-[#14141d] border border-[#2c2b3a] rounded-xl p-4 space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isSecret ? 'bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/40' : 'bg-[#2c2b3a]/50 text-[#8e887d]'}`}>
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <h4 className="font-cinzel text-xs tracking-[0.18em] uppercase text-[#d4af37] font-semibold">
+                    Secret Page Protection
+                  </h4>
+                  <p className="text-[10px] text-[#8e887d]">Lock this page with a custom passcode</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSecret(!isSecret);
+                  setAutoSaveStatus('unsaved');
+                }}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  isSecret ? 'bg-[#d4af37]' : 'bg-[#2c2b3a]'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[#0e0e13] shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    isSecret ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {isSecret && (
+              <div className="pt-2 border-t border-[#232330] space-y-3 animate-fade-in">
+                <div>
+                  <label className="block text-[11px] text-[#ded8cc] mb-1 flex items-center gap-1">
+                    <KeyRound className="w-3 h-3 text-[#d4af37]" /> Secret Passcode *
+                  </label>
+                  <input
+                    type="text"
+                    value={secretPasscode}
+                    onChange={(e) => {
+                      setSecretPasscode(e.target.value);
+                      setAutoSaveStatus('unsaved');
+                    }}
+                    placeholder="e.g. 7482 or secret-word"
+                    className="w-full h-9 bg-[#0b0c10] border border-[#2e2d3d] focus:border-[#d4af37] rounded-lg px-3 text-xs text-[#ded8cc] focus:outline-none font-mono"
+                  />
+                  <span className="text-[10px] text-[#8e887d] mt-1 block">
+                    The custom password required to unlock and read this specific page.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-[#ded8cc] mb-1 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-[#d4af37]" /> Password Hint (Displayed to Readers)
+                  </label>
+                  <input
+                    type="text"
+                    value={secretHint}
+                    onChange={(e) => {
+                      setSecretHint(e.target.value);
+                      setAutoSaveStatus('unsaved');
+                    }}
+                    placeholder="e.g. The year we first met at the library"
+                    className="w-full h-9 bg-[#0b0c10] border border-[#2e2d3d] focus:border-[#d4af37] rounded-lg px-3 text-xs text-[#ded8cc] focus:outline-none"
+                  />
+                  <span className="text-[10px] text-[#8e887d] mt-1 block">
+                    The hint you type here will be displayed directly on the locked secret page.
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Cover & Atmosphere Imagery */}

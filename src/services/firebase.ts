@@ -88,6 +88,9 @@ function docToEntry(id: string, data: Record<string, any>): DiaryEntry {
     status: data.status === 'draft' ? 'draft' : 'published',
     pageOrder: typeof data.pageOrder === 'number' ? data.pageOrder : 1,
     customPageNumber: data.customPageNumber ? Number(data.customPageNumber) : undefined,
+    isSecret: Boolean(data.isSecret),
+    secretPasscode: data.secretPasscode || undefined,
+    secretHint: data.secretHint || undefined,
     createdAt: createdAtStr,
     updatedAt: updatedAtStr,
     publishedAt: data.publishedAt
@@ -186,6 +189,9 @@ export async function handleAddPage(customFields?: Partial<DiaryEntry>): Promise
     coverImage: customFields?.coverImage || "",
     mood: customFields?.mood || "Reflective",
     location: customFields?.location || "",
+    isSecret: Boolean(customFields?.isSecret),
+    secretPasscode: customFields?.secretPasscode || "",
+    secretHint: customFields?.secretHint || "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   };
@@ -206,6 +212,9 @@ export async function handleAddPage(customFields?: Partial<DiaryEntry>): Promise
     status: initialData.status,
     pageOrder: initialData.pageOrder,
     customPageNumber: initialData.customPageNumber,
+    isSecret: initialData.isSecret,
+    secretPasscode: initialData.secretPasscode,
+    secretHint: initialData.secretHint,
     createdAt: now,
     updatedAt: now
   };
@@ -248,6 +257,9 @@ export async function saveEntryToFirestore(entryData: Partial<DiaryEntry>, id?: 
     status: dataToSave.status === 'draft' ? 'draft' : 'published',
     pageOrder: Number(dataToSave.pageOrder) || 1,
     customPageNumber: dataToSave.customPageNumber ? Number(dataToSave.customPageNumber) : undefined,
+    isSecret: Boolean(dataToSave.isSecret),
+    secretPasscode: dataToSave.secretPasscode,
+    secretHint: dataToSave.secretHint,
     createdAt: dataToSave.createdAt || now,
     updatedAt: now,
     publishedAt: dataToSave.publishedAt

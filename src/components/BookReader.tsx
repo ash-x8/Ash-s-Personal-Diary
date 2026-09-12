@@ -23,6 +23,7 @@ import {
   BookEntryLeftPage,
   BookEntryRightPage
 } from './BookPage';
+import { BookSecretLockedPage } from './BookSecretLockedPage';
 
 interface BookReaderProps {
   entries: DiaryEntry[];
@@ -67,6 +68,15 @@ export const BookReader: React.FC<BookReaderProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileView, setIsMobileView] = useState(false);
   const [mobilePageIndex, setMobilePageIndex] = useState(0);
+  const [unlockedSecretIds, setUnlockedSecretIds] = useState<Set<string>>(new Set());
+
+  const handleUnlockEntry = (entryId: string) => {
+    setUnlockedSecretIds((prev) => {
+      const updated = new Set(prev);
+      updated.add(entryId);
+      return updated;
+    });
+  };
 
   // Touch gesture handling for mobile swipe
   const touchStartX = useRef<number | null>(null);
@@ -289,6 +299,26 @@ export const BookReader: React.FC<BookReaderProps> = ({
       );
     }
 
+    const isSecretLocked = Boolean(entry.isSecret && !unlockedSecretIds.has(entry.id));
+
+    if (isSecretLocked) {
+      return (
+        <BookPageContainer
+          pageNumber={spreadIdx * 2}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="left"
+        >
+          <BookSecretLockedPage
+            entry={entry}
+            onUnlock={() => handleUnlockEntry(entry.id)}
+            isEditor={isEditorPreview}
+          />
+        </BookPageContainer>
+      );
+    }
+
     return (
       <BookPageContainer
         pageNumber={spreadIdx * 2}
@@ -332,6 +362,36 @@ export const BookReader: React.FC<BookReaderProps> = ({
         >
           <div className="h-full flex items-center justify-center text-center opacity-60 font-serif-book italic">
             <p>The quiet unwritten tomorrow.</p>
+          </div>
+        </BookPageContainer>
+      );
+    }
+
+    const isSecretLocked = Boolean(entry.isSecret && !unlockedSecretIds.has(entry.id));
+
+    if (isSecretLocked) {
+      return (
+        <BookPageContainer
+          pageNumber={spreadIdx * 2 + 1}
+          totalPages={totalSpreads * 2}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="right"
+        >
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 select-none opacity-85">
+            <div className="w-14 h-14 rounded-full border-2 border-dashed border-[#d4af37]/40 flex items-center justify-center">
+              <Lock className="w-6 h-6 text-[#d4af37]" />
+            </div>
+            <h4 className="font-cinzel text-xs tracking-[0.25em] uppercase text-[#d4af37] font-semibold">
+              Passcode Protected Archive
+            </h4>
+            <p className="font-serif-book italic text-base opacity-80 max-w-xs leading-relaxed">
+              "The inscription on this leaf remains veiled until the secret passcode is entered."
+            </p>
+            <div className="w-12 h-px bg-current opacity-20 my-2" />
+            <span className="text-[10px] font-cinzel tracking-widest uppercase opacity-60">
+              Provide key on the facing page to unlock
+            </span>
           </div>
         </BookPageContainer>
       );
@@ -404,6 +464,26 @@ export const BookReader: React.FC<BookReaderProps> = ({
               End of inscribed pages.
             </p>
           </div>
+        </BookPageContainer>
+      );
+    }
+
+    const isSecretLocked = Boolean(entry.isSecret && !unlockedSecretIds.has(entry.id));
+
+    if (isSecretLocked) {
+      return (
+        <BookPageContainer
+          pageNumber={pageIdx + 1}
+          totalPages={totalMobilePages}
+          settings={settings}
+          paperTheme={paperTheme}
+          side="single"
+        >
+          <BookSecretLockedPage
+            entry={entry}
+            onUnlock={() => handleUnlockEntry(entry.id)}
+            isEditor={isEditorPreview}
+          />
         </BookPageContainer>
       );
     }

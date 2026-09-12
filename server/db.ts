@@ -111,6 +111,9 @@ class FirestoreDatabase {
             status: data.status === 'draft' ? 'draft' : 'published',
             pageOrder: Number(data.pageOrder) || 1,
             customPageNumber: data.customPageNumber ? Number(data.customPageNumber) : undefined,
+            isSecret: Boolean(data.isSecret),
+            secretPasscode: data.secretPasscode || undefined,
+            secretHint: data.secretHint || undefined,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
             publishedAt: data.publishedAt

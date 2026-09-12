@@ -26,13 +26,15 @@ import {
   FileDown,
   Printer,
   CheckSquare,
-  Square
+  Square,
+  KeyRound
 } from 'lucide-react';
 import { DiaryEntry, DiarySettings, DashboardStats, MediaItem } from '../types';
 import { EntryEditor } from './EntryEditor';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { SettingsPanel } from './SettingsPanel';
 import { PdfExportModal } from './PdfExportModal';
+import { SecretPageModal } from './SecretPageModal';
 
 interface EditorDashboardProps {
   entries: DiaryEntry[];
@@ -76,6 +78,8 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const [showPdfExportModal, setShowPdfExportModal] = useState(false);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [pdfModalInitialIds, setPdfModalInitialIds] = useState<string[] | undefined>(undefined);
+  const [showSecretModal, setShowSecretModal] = useState(false);
+  const [secretModalEntry, setSecretModalEntry] = useState<DiaryEntry | null>(null);
 
   // Filtered & sorted entries
   const filteredEntries = entries
@@ -220,6 +224,32 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
 
   const handleClearSelection = () => {
     setSelectedEntryIds(new Set());
+  };
+
+  const handleOpenSecretModal = (entry: DiaryEntry) => {
+    setSecretModalEntry(entry);
+    setShowSecretModal(true);
+  };
+
+  const handleSaveSecretSettings = async (
+    entryId: string,
+    isSecret: boolean,
+    passcode: string,
+    hint: string
+  ) => {
+    const targetEntry = entries.find((e) => e.id === entryId);
+    if (!targetEntry) return;
+
+    await onSaveEntry(
+      {
+        ...targetEntry,
+        isSecret,
+        secretPasscode: isSecret ? passcode : '',
+        secretHint: isSecret ? hint : ''
+      },
+      targetEntry.status === 'published',
+      entryId
+    );
   };
 
   const isAllFilteredSelected =
@@ -491,6 +521,11 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                             <span className="font-serif-book text-base font-semibold text-[#f5ebd7]">
                               {entry.title}
                             </span>
+                            {entry.isSecret && (
+                              <span className="text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5" /> Secret
+                              </span>
+                            )}
                             <span
                               className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full ${
                                 entry.status === 'published'
@@ -510,6 +545,18 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSecretModal(entry)}
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            entry.isSecret
+                              ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/40'
+                              : 'text-[#7d786d] hover:text-[#d4af37]'
+                          }`}
+                          title={entry.isSecret ? "Secret Page Locked (Configure Passcode & Hint)" : "Set Secret Passcode for this page"}
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleStartEdit(entry)}
@@ -707,6 +754,11 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                             <h4 className="font-serif-book text-lg font-semibold text-[#f5ebd7] truncate">
                               {entry.title}
                             </h4>
+                            {entry.isSecret && (
+                              <span className="text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 flex items-center gap-1 font-semibold">
+                                <Lock className="w-2.5 h-2.5" /> Secret Page
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleToggleStatus(entry)}
@@ -761,6 +813,24 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                           title="Export this entry to PDF"
                         >
                           <FileDown className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Secret Passcode configuration button */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSecretModal(entry)}
+                          className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                            entry.isSecret
+                              ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/40 hover:bg-[#d4af37]/25'
+                              : 'bg-[#22212f] hover:bg-[#2d2b40] text-[#7a7467] hover:text-[#d4af37]'
+                          }`}
+                          title={
+                            entry.isSecret
+                              ? "Secret Passcode Protected (Click to edit passcode & hint)"
+                              : "Set Secret Passcode & Hint for this page"
+                          }
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
                         </button>
 
                         <button
@@ -832,6 +902,17 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
         entries={entries}
         settings={settings}
         preSelectedIds={pdfModalInitialIds}
+      />
+
+      {/* Direct Secret Passcode & Hint Configuration Modal */}
+      <SecretPageModal
+        isOpen={showSecretModal}
+        entry={secretModalEntry}
+        onClose={() => {
+          setShowSecretModal(false);
+          setSecretModalEntry(null);
+        }}
+        onSave={handleSaveSecretSettings}
       />
     </div>
   );

@@ -16,6 +16,9 @@ export interface DiaryEntry {
   status: EntryStatus;
   pageOrder: number;
   customPageNumber?: number;
+  isSecret?: boolean;
+  secretPasscode?: string;
+  secretHint?: string;
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
