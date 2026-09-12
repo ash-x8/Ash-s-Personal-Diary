@@ -149,6 +149,15 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     }
   }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId]);
 
+  // Initialize innerHTML on initial load / entry change without re-rendering contentEditable on every stroke
+  useEffect(() => {
+    if (contentEditorRef.current) {
+      if (contentEditorRef.current.innerHTML !== content) {
+        contentEditorRef.current.innerHTML = content || '<p></p>';
+      }
+    }
+  }, [initialEntry?.id]);
+
   // Setup compositionstart and compositionend event listeners for Sinhala / IME support
   useEffect(() => {
     const el = contentEditorRef.current;
@@ -163,7 +172,6 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       if (contentEditorRef.current) {
         setContent(contentEditorRef.current.innerHTML);
       }
-      // Schedule post-composition auto-save
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
       }
@@ -485,7 +493,6 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               contentEditable
               dir="ltr"
               style={{ textAlign: 'left' }}
-              dangerouslySetInnerHTML={{ __html: content }}
               onInput={() => {
                 if (!isComposingRef.current && contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);
