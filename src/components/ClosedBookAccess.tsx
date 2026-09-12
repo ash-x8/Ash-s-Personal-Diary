@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Eye, EyeOff, KeyRound, Sparkles, BookOpen } from 'lucide-react';
+import { Lock, KeyRound, Sparkles, BookOpen } from 'lucide-react';
 import { soundService } from '../services/sound';
 import { UserRole } from '../types';
 
@@ -19,7 +19,6 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
   authorName = "ASH-X8"
 }) => {
   const [code, setCode] = useState('');
-  const [showCode, setShowCode] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isShaking, setIsShaking] = useState(false);
@@ -159,43 +158,6 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
             </p>
           </div>
 
-          {/* Security Key / Access PIN Card */}
-          <div 
-            id="vault-access-key-card"
-            className="mb-5 p-3 rounded-lg bg-[#181722]/95 border border-[#d4af37]/35 text-center shadow-inner"
-          >
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-[#e8c872] font-cinzel tracking-wider uppercase mb-2">
-              <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" />
-              <span>Access PIN / Security Key</span>
-            </div>
-            <div className="flex items-center justify-center gap-2.5">
-              <button
-                type="button"
-                id="hint-editor-code-btn"
-                onClick={() => { setCode('0704'); setError(null); }}
-                className="px-3 py-1.5 rounded-md bg-[#252332] hover:bg-[#322f44] border border-[#d4af37]/50 text-[#f5ebd7] font-mono text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow"
-                title="Fill Editor key: 0704"
-              >
-                <span className="font-cinzel text-[10px] text-[#b8b09f] uppercase tracking-wider">Editor:</span>
-                <span className="font-bold text-[#e8c872] tracking-widest text-sm">0704</span>
-              </button>
-              <span className="text-[#5b5446]">•</span>
-              <button
-                type="button"
-                id="hint-reader-code-btn"
-                onClick={() => { setCode('0422'); setError(null); }}
-                className="px-3 py-1.5 rounded-md bg-[#252332] hover:bg-[#322f44] border border-[#d4af37]/50 text-[#f5ebd7] font-mono text-xs transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow"
-                title="Fill Reader key: 0422"
-              >
-                <span className="font-cinzel text-[10px] text-[#b8b09f] uppercase tracking-wider">Reader:</span>
-                <span className="font-bold text-[#e8c872] tracking-widest text-sm">0422</span>
-              </button>
-            </div>
-            <p className="text-[10px] text-[#9c9484] font-serif-book italic mt-2">
-              Tap either key to auto-fill, or type below.
-            </p>
-          </div>
-
           {/* Security key input form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -204,11 +166,8 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                   htmlFor="access-code-input"
                   className="text-[11px] tracking-[0.25em] text-[#d4af37]/90 uppercase font-semibold font-cinzel"
                 >
-                  ENTER ACCESS PIN
+                  ENTER ACCESS PASSCODE
                 </label>
-                <span className="text-[10px] font-mono text-[#d4af37]/80">
-                  {code === '0704' ? '✓ Editor Key' : code === '0422' ? '✓ Reader Key' : 'Key: 0704 or 0422'}
-                </span>
               </div>
 
               <div className="relative flex items-center">
@@ -219,7 +178,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                 <input
                   id="access-code-input"
                   name="accessCode"
-                  type={showCode ? 'text' : 'password'}
+                  type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   autoComplete="off"
@@ -229,23 +188,12 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                     setCode(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder="0704 or 0422"
-                  className="w-full h-12 bg-[#0a0a0d] border border-[#38332c] focus:border-[#d4af37]/70 rounded-lg pl-10 pr-11 text-center font-mono text-lg tracking-[0.35em] text-[#f4eedf] placeholder-[#5c5446] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30 transition-colors"
+                  placeholder="••••••••"
+                  className="w-full h-12 bg-[#0a0a0d] border border-[#38332c] focus:border-[#d4af37]/70 rounded-lg px-10 text-center font-mono text-lg tracking-[0.35em] text-[#f4eedf] placeholder-[#5c5446] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30 transition-colors"
                   aria-invalid={!!error}
                   aria-describedby={error ? "access-error-msg" : undefined}
                   required
                 />
-
-                <button
-                  type="button"
-                  id="toggle-code-visibility-btn"
-                  onClick={() => setShowCode(!showCode)}
-                  className="absolute right-3 p-1.5 text-[#857b6b] hover:text-[#d4af37] transition-colors rounded cursor-pointer"
-                  aria-label={showCode ? "Hide access PIN" : "Show access PIN"}
-                  title={showCode ? "Hide characters" : "Show characters"}
-                >
-                  {showCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
             </div>
 
@@ -294,7 +242,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
         {/* Quiet footer prompt */}
         <div className="mt-4 text-center">
           <p className="text-[11px] text-[#71695b] tracking-wider font-serif-book italic">
-            Enter <span className="font-mono text-[#e8c872] not-italic font-semibold">0704</span> for Editor controls or <span className="font-mono text-[#e8c872] not-italic font-semibold">0422</span> for Reading access
+            Protected personal diary • Authorized access only
           </p>
         </div>
       </div>
