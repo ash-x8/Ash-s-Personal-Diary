@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BookOpen,
   FileText,
@@ -32,6 +32,7 @@ interface EditorDashboardProps {
   settings: DiarySettings;
   stats: DashboardStats;
   media: MediaItem[];
+  onSetActivePageId?: (id: string | null) => void;
   onSaveEntry: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onDeleteEntry: (id: string) => Promise<void>;
   onReorderEntries: (order: { id: string; pageOrder: number }[]) => Promise<void>;
@@ -49,6 +50,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   settings,
   stats,
   media,
+  onSetActivePageId,
   onSaveEntry,
   onDeleteEntry,
   onReorderEntries,
@@ -64,6 +66,15 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
   const [sortBy, setSortBy] = useState<'order' | 'date-desc' | 'date-asc' | 'title'>('order');
   const [showMediaModal, setShowMediaModal] = useState(false);
+
+  // Notify parent of active page ID for single doc real-time snapshot listener
+  useEffect(() => {
+    if (currentTab === 'new-entry' && editingEntry?.id) {
+      if (onSetActivePageId) onSetActivePageId(editingEntry.id);
+    } else {
+      if (onSetActivePageId) onSetActivePageId(null);
+    }
+  }, [currentTab, editingEntry?.id, onSetActivePageId]);
 
   // Filtered & sorted entries memoized to avoid redundant computation on unrelated state changes
   const filteredEntries = useMemo(() => {
