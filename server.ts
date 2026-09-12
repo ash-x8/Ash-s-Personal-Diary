@@ -156,7 +156,8 @@ app.post('/api/entries', requireEditor, (req, res) => {
 
     res.status(201).json(newEntry);
   } catch (err: any) {
-    res.status(500).json({ error: 'Something went wrong while saving your entry.', details: err.message });
+    console.error('Error creating entry:', err);
+    res.status(500).json({ error: 'Something went wrong while saving your entry.' });
   }
 });
 
@@ -170,7 +171,8 @@ app.put('/api/entries/:id', requireEditor, (req, res) => {
     }
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: 'Something went wrong while saving your entry.', details: err.message });
+    console.error('Error updating entry:', err);
+    res.status(500).json({ error: 'Something went wrong while saving your entry.' });
   }
 });
 
@@ -244,7 +246,8 @@ app.delete('/api/media/:id', requireEditor, (req, res) => {
   const target = mediaList.find(m => m.id === req.params.id);
   if (target) {
     const filePath = path.resolve(UPLOAD_DIR, target.filename);
-    if (fs.existsSync(filePath)) {
+    // Path traversal safety check to ensure deletion remains strictly within UPLOAD_DIR
+    if (filePath.startsWith(UPLOAD_DIR) && fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
       } catch (e) {
