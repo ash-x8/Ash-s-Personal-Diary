@@ -33,110 +33,7 @@ export const DEFAULT_SETTINGS: DiarySettings = {
   lastUpdated: new Date().toISOString()
 };
 
-export const DEFAULT_ENTRIES: DiaryEntry[] = [
-  {
-    id: "entry-01",
-    title: "The Beginning",
-    slug: "the-beginning",
-    date: "2026-09-04",
-    mood: "Reflective",
-    location: "Studio 8, High Street",
-    tags: ["Origins", "Memories", "Beginning"],
-    coverImage: "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=1200&q=80",
-    gallery: [
-      "https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=800&q=80"
-    ],
-    status: "published",
-    pageOrder: 1,
-    customPageNumber: 1,
-    createdAt: "2026-09-04T22:15:00Z",
-    updatedAt: "2026-09-04T22:15:00Z",
-    publishedAt: "2026-09-04T22:15:00Z",
-    content: `<p>There is a peculiar quiet that descends upon the world past two in the morning. A silence so delicate that even the turning of a page feels like an intrusion.</p>
-<p>I have started this diary not to capture grand milestones, but to preserve the subtle fissures—the quiet hours that usually dissolve before sunrise. For years, thoughts lingered without a home, drifting between notebooks left half-filled in bedside drawers.</p>
-<blockquote>"Some memories are meant to stay between pages, sheltered from the velocity of the outside world."</blockquote>
-<p>Here, the ink doesn't rush. The words are allowed to breathe. If you are reading this, you are holding the quietest parts of me.</p>`
-  },
-  {
-    id: "entry-02",
-    title: "A Strange Day",
-    slug: "a-strange-day",
-    date: "2026-09-06",
-    mood: "Curious",
-    location: "The Old Library Quarter",
-    tags: ["Rain", "Wanderings", "Thoughts"],
-    coverImage: "https://images.unsplash.com/photo-1507842229458-5776306235e2?auto=format&fit=crop&w=1200&q=80",
-    gallery: [],
-    status: "published",
-    pageOrder: 2,
-    customPageNumber: 2,
-    createdAt: "2026-09-06T18:40:00Z",
-    updatedAt: "2026-09-06T18:40:00Z",
-    publishedAt: "2026-09-06T18:40:00Z",
-    content: `<p>Rain arrived without ceremony this afternoon. The cobblestones took on a mirror sheen, reflecting the dark amber lamps of the antique bookstalls.</p>
-<p>I found myself standing beneath the canvas awning of a corner shop, listening to the rhythm of water striking the stone. A stranger nodded as they passed, collar pulled up against the mist. It felt as if time had temporarily forgotten to move forward.</p>
-<p>In that suspended minute, I realized how rarely we allow ourselves to simply stand still without reaching for a destination or an excuse.</p>`
-  },
-  {
-    id: "entry-03",
-    title: "Things I Never Said",
-    slug: "things-i-never-said",
-    date: "2026-09-08",
-    mood: "Nostalgic",
-    location: "Rooftop at Twilight",
-    tags: ["Confessions", "Echoes", "Night"],
-    coverImage: "https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&w=1200&q=80",
-    gallery: [
-      "https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=800&q=80"
-    ],
-    status: "published",
-    pageOrder: 3,
-    customPageNumber: 3,
-    createdAt: "2026-09-08T20:05:00Z",
-    updatedAt: "2026-09-08T20:05:00Z",
-    publishedAt: "2026-09-08T20:05:00Z",
-    content: `<p>We often carry conversations we never ended up speaking aloud. Sentences phrased with surgical precision in our minds, only to be discarded when the moment arrives.</p>
-<p>Looking out across the city tonight, seeing the scattered constellations of windows glowing in high-rises, I wonder how many other untold stories are quietly sleeping behind drawn curtains.</p>
-<p>Perhaps writing them down is not about seeking answers, but about freeing the mind from carrying them forever.</p>`
-  },
-  {
-    id: "entry-04",
-    title: "A Quiet Night",
-    slug: "a-quiet-night",
-    date: "2026-09-11",
-    mood: "Calm",
-    location: "Home, Candlelit Study",
-    tags: ["Personal", "Night", "Silence"],
-    coverImage: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=1200&q=80",
-    gallery: [],
-    status: "published",
-    pageOrder: 4,
-    customPageNumber: 4,
-    createdAt: "2026-09-11T23:30:00Z",
-    updatedAt: "2026-09-11T23:30:00Z",
-    publishedAt: "2026-09-11T23:30:00Z",
-    content: `<p>A cup of smoked lapsang souchong tea, still steaming faintly against the wooden desk. The room is dim save for a solitary lamp casting warm golden circles onto the paper.</p>
-<p>Everything has settled into its natural cadence. The day's anxieties have shrunk into insignificance. There is profound peace in knowing that this moment belongs to no one else.</p>
-<p>Tomorrow will bring its own demands, but for tonight, the book closes gently on a grateful heart.</p>`
-  },
-  {
-    id: "entry-05",
-    title: "Unfinished Thoughts on Autumn",
-    slug: "unfinished-thoughts-on-autumn",
-    date: "2026-09-12",
-    mood: "Wistful",
-    location: "North Garden",
-    tags: ["Draft", "Autumn", "Seasons"],
-    coverImage: "",
-    gallery: [],
-    status: "draft",
-    pageOrder: 5,
-    customPageNumber: 5,
-    createdAt: "2026-09-11T10:00:00Z",
-    updatedAt: "2026-09-11T10:00:00Z",
-    content: `<p>Draft notes: The leaves along the courtyard are turning copper earlier than expected this season. Must flesh out the memory from three Octobers ago...</p>`
-  }
-];
+export const DEFAULT_ENTRIES: DiaryEntry[] = [];
 
 class LocalDatabase {
   private getStorage<T>(key: string, fallback: T): T {
@@ -208,12 +105,10 @@ class LocalDatabase {
   public getEntries(): DiaryEntry[] {
     const existing = this.getStorage<DiaryEntry[] | null>(STORAGE_KEYS.ENTRIES, null);
     const session = this.getSession();
-    let entries: DiaryEntry[] = existing || [];
-
-    if (!existing || existing.length === 0) {
-      this.setStorage(STORAGE_KEYS.ENTRIES, DEFAULT_ENTRIES);
-      entries = DEFAULT_ENTRIES;
-    }
+    // Filter out any legacy mock entries (e.g. from previous app seeds)
+    const entries: DiaryEntry[] = (existing || []).filter(
+      (e) => !['entry-01', 'entry-02', 'entry-03', 'entry-04', 'entry-05'].includes(e.id)
+    );
 
     if (session.role === 'READER') {
       return entries
@@ -232,7 +127,7 @@ class LocalDatabase {
   }
 
   public createEntry(data: Partial<DiaryEntry>): DiaryEntry {
-    const entries = this.getStorage<DiaryEntry[]>(STORAGE_KEYS.ENTRIES, DEFAULT_ENTRIES);
+    const entries = this.getEntries();
     const newOrder = entries.length > 0 ? Math.max(...entries.map((e) => e.pageOrder || 0)) + 1 : 1;
     const now = new Date().toISOString();
 
@@ -284,14 +179,14 @@ class LocalDatabase {
   }
 
   public deleteEntry(id: string): { success: boolean } {
-    const entries = this.getStorage<DiaryEntry[]>(STORAGE_KEYS.ENTRIES, DEFAULT_ENTRIES);
-    const filtered = entries.filter((e) => e.id !== id);
+    const entries = this.getEntries();
+    const filtered = entries.filter((e) => e.id !== id && e.slug !== id);
     this.setStorage(STORAGE_KEYS.ENTRIES, filtered);
     return { success: true };
   }
 
   public reorderEntries(order: { id: string; pageOrder: number }[]): { success: boolean } {
-    const entries = this.getStorage<DiaryEntry[]>(STORAGE_KEYS.ENTRIES, DEFAULT_ENTRIES);
+    const entries = this.getEntries();
     const orderMap = new Map(order.map((o) => [o.id, o.pageOrder]));
     entries.forEach((e) => {
       if (orderMap.has(e.id)) {
@@ -304,7 +199,7 @@ class LocalDatabase {
   }
 
   public getStats(): DashboardStats {
-    const entries = this.getStorage<DiaryEntry[]>(STORAGE_KEYS.ENTRIES, DEFAULT_ENTRIES);
+    const entries = this.getEntries();
     const published = entries.filter((e) => e.status === 'published').length;
     const drafts = entries.filter((e) => e.status === 'draft').length;
     const now = new Date();

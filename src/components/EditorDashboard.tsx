@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { doc, deleteDoc } from 'firebase/firestore';
+import { db } from '../services/firebase';
 import {
   BookOpen,
   FileText,
@@ -130,6 +132,21 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const handleToggleStatus = async (entry: DiaryEntry) => {
     const nextStatus = entry.status === 'published' ? 'draft' : 'published';
     await onSaveEntry({ status: nextStatus }, nextStatus === 'published', entry.id);
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    try {
+      // Delete directly from Firestore document reference
+      await deleteDoc(doc(db, "diary_pages", entryId));
+      await deleteDoc(doc(db, "entries", entryId)).catch(() => {});
+    } catch (error) {
+      console.error("Error deleting entry from Firestore:", error);
+    }
+    try {
+      await onDeleteEntry(entryId);
+    } catch (error) {
+      console.error("Error syncing delete:", error);
+    }
   };
 
   const handleMoveOrder = async (entry: DiaryEntry, direction: 'up' | 'down') => {
@@ -362,63 +379,76 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                 </button>
               </div>
 
-              <div className="space-y-3">
-                {entries.slice(0, 5).map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#191924] hover:bg-[#201f2f] transition-colors border border-[#2c2b3c]"
+              {entries.length === 0 ? (
+                <div className="py-12 text-center text-[#8e8779] font-serif-book">
+                  <p className="text-sm italic">No diary entries found. Click + to create your first page.</p>
+                  <button
+                    type="button"
+                    onClick={handleStartCreate}
+                    className="mt-3 px-4 py-1.5 bg-[#d4af37] hover:bg-[#e8c872] text-black font-cinzel text-xs uppercase tracking-wider rounded-lg transition-colors font-medium inline-flex items-center gap-1.5 cursor-pointer"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-[#272638] flex items-center justify-center text-[#d4af37]">
-                        <BookMarked className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-serif-book text-base font-semibold text-[#f5ebd7]">
-                            {entry.title}
-                          </span>
-                          <span
-                            className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full ${
-                              entry.status === 'published'
-                                ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                                : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
-                            }`}
-                          >
-                            {entry.status}
-                          </span>
+                    <Plus className="w-3.5 h-3.5" /> Create First Page
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {entries.slice(0, 5).map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#191924] hover:bg-[#201f2f] transition-colors border border-[#2c2b3c]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-[#272638] flex items-center justify-center text-[#d4af37]">
+                          <BookMarked className="w-4 h-4" />
                         </div>
-                        <div className="text-xs text-[#787265] mt-0.5 flex items-center gap-2">
-                          <span>{entry.date}</span>
-                          {entry.mood && <span>• Mood: {entry.mood}</span>}
-                          <span>• Order #{entry.pageOrder}</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-serif-book text-base font-semibold text-[#f5ebd7]">
+                              {entry.title}
+                            </span>
+                            <span
+                              className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full ${
+                                entry.status === 'published'
+                                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
+                                  : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
+                              }`}
+                            >
+                              {entry.status}
+                            </span>
+                          </div>
+                          <div className="text-xs text-[#787265] mt-0.5 flex items-center gap-2">
+                            <span>{entry.date}</span>
+                            {entry.mood && <span>• Mood: {entry.mood}</span>}
+                            <span>• Order #{entry.pageOrder}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(entry)}
-                        className="px-3 py-1 bg-[#282738] hover:bg-[#34334a] text-xs font-cinzel uppercase tracking-wider rounded text-[#ded8cc] transition-colors cursor-pointer flex items-center gap-1"
-                      >
-                        <Edit3 className="w-3 h-3" /> Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Delete entry "${entry.title}"?`)) {
-                            onDeleteEntry(entry.id);
-                          }
-                        }}
-                        className="p-1.5 hover:text-rose-400 transition-colors rounded text-[#7d786d] cursor-pointer"
-                        title="Delete entry"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(entry)}
+                          className="px-3 py-1 bg-[#282738] hover:bg-[#34334a] text-xs font-cinzel uppercase tracking-wider rounded text-[#ded8cc] transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3 h-3" /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Delete entry "${entry.title}"?`)) {
+                              handleDeleteEntry(entry.id);
+                            }
+                          }}
+                          className="p-1.5 hover:text-rose-400 transition-colors rounded text-[#7d786d] cursor-pointer"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -489,8 +519,15 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
 
             {/* Entries List */}
             {filteredEntries.length === 0 ? (
-              <div className="py-16 text-center text-[#706a5e] font-serif-book italic">
-                No diary entries matched your criteria.
+              <div className="py-16 text-center text-[#8e8779] font-serif-book">
+                <p className="text-sm italic">No diary entries found. Click + to create your first page.</p>
+                <button
+                  type="button"
+                  onClick={handleStartCreate}
+                  className="mt-3 px-4 py-1.5 bg-[#d4af37] hover:bg-[#e8c872] text-black font-cinzel text-xs uppercase tracking-wider rounded-lg transition-colors font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Create First Page
+                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -564,7 +601,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                         type="button"
                         onClick={() => {
                           if (confirm(`Delete entry "${entry.title}"?`)) {
-                            onDeleteEntry(entry.id);
+                            handleDeleteEntry(entry.id);
                           }
                         }}
                         className="p-2 rounded-lg bg-[#22212f] hover:bg-rose-950/50 hover:text-rose-400 text-[#7a7467] transition-colors cursor-pointer"

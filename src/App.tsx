@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { doc, deleteDoc } from 'firebase/firestore';
 import { api } from './services/api';
 import { soundService } from './services/sound';
 import {
+  db,
   subscribeToPublishedEntries,
   subscribeToAllEntries,
   subscribeToSettings,
@@ -163,36 +165,26 @@ export function App() {
     try {
       if (role === 'READER') {
         const firestoreEntries = await fetchPublishedEntriesFromFirestore();
-        if (firestoreEntries && firestoreEntries.length > 0) {
-          setEntries(firestoreEntries);
-        } else {
-          const entryList = await api.getEntries();
-          setEntries(entryList);
-        }
+        setEntries(firestoreEntries);
       } else {
         const firestoreEntries = await fetchAllEntriesFromFirestore();
-        if (firestoreEntries && firestoreEntries.length > 0) {
-          setEntries(firestoreEntries);
-          setStats((prev) => ({
-            ...prev,
-            totalEntries: firestoreEntries.length,
-            published: firestoreEntries.filter(e => e.status === 'published').length,
-            drafts: firestoreEntries.filter(e => e.status === 'draft').length,
-            totalPages: firestoreEntries.length,
-            lastUpdated: new Date().toISOString()
-          }));
-        } else {
-          const entryList = await api.getEntries();
-          setEntries(entryList);
-        }
+        setEntries(firestoreEntries);
+        setStats((prev) => ({
+          ...prev,
+          totalEntries: firestoreEntries.length,
+          published: firestoreEntries.filter(e => e.status === 'published').length,
+          drafts: firestoreEntries.filter(e => e.status === 'draft').length,
+          totalPages: firestoreEntries.length,
+          lastUpdated: new Date().toISOString()
+        }));
 
         const [dashboardStats, mediaList] = await Promise.all([
           api.getStats().catch(() => ({
-            totalEntries: entries.length,
-            published: entries.filter(e => e.status === 'published').length,
-            drafts: entries.filter(e => e.status === 'draft').length,
-            thisMonth: entries.length,
-            totalPages: entries.length,
+            totalEntries: firestoreEntries.length,
+            published: firestoreEntries.filter(e => e.status === 'published').length,
+            drafts: firestoreEntries.filter(e => e.status === 'draft').length,
+            thisMonth: firestoreEntries.length,
+            totalPages: firestoreEntries.length,
             lastUpdated: new Date().toISOString()
           })),
           api.getMedia().catch(() => [])
@@ -201,7 +193,7 @@ export function App() {
         if (mediaList) setMedia(mediaList);
       }
     } catch (err: any) {
-      setErrorNotice(err.message || 'Error loading diary records.');
+      console.warn('Error loading diary records from Firestore:', err);
     }
   };
 
@@ -263,8 +255,14 @@ export function App() {
   };
 
   const handleDeleteEntry = async (id: string) => {
-    // 1. Delete directly from Cloud Firestore
-    await deleteEntryFromFirestore(id);
+    // 1. Delete directly from Cloud Firestore document reference
+    try {
+      await deleteDoc(doc(db, "diary_pages", id));
+      await deleteDoc(doc(db, "entries", id)).catch(() => {});
+    } catch (error) {
+      console.error("Error deleting entry from Firestore:", error);
+    }
+    await deleteEntryFromFirestore(id).catch(() => {});
 
     // 2. Sync to API
     try {

@@ -91,37 +91,34 @@ class FirestoreDatabase {
 
   public async refreshCache(): Promise<void> {
     try {
-      // 1. Fetch entries from Firestore (check diary_pages first, then entries)
-      let entriesSnap = await getDocs(collection(firestore, 'diary_pages'));
-      if (entriesSnap.empty) {
-        entriesSnap = await getDocs(collection(firestore, 'entries'));
-      }
+      // 1. Fetch entries from Firestore
+      const entriesSnap = await getDocs(collection(firestore, 'diary_pages'));
       const loadedEntries: DiaryEntry[] = [];
       entriesSnap.forEach((d) => {
         const data = d.data();
-        loadedEntries.push({
-          id: d.id,
-          title: data.title || 'Untitled',
-          slug: data.slug || d.id,
-          content: data.content || '',
-          date: data.date || '',
-          mood: data.mood,
-          location: data.location,
-          tags: Array.isArray(data.tags) ? data.tags : [],
-          coverImage: data.coverImage,
-          gallery: Array.isArray(data.gallery) ? data.gallery : [],
-          status: data.status === 'draft' ? 'draft' : 'published',
-          pageOrder: Number(data.pageOrder) || 1,
-          customPageNumber: data.customPageNumber ? Number(data.customPageNumber) : undefined,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt,
-          publishedAt: data.publishedAt
-        });
+        if (!['entry-01', 'entry-02', 'entry-03', 'entry-04', 'entry-05'].includes(d.id)) {
+          loadedEntries.push({
+            id: d.id,
+            title: data.title || 'Untitled',
+            slug: data.slug || d.id,
+            content: data.content || '',
+            date: data.date || '',
+            mood: data.mood,
+            location: data.location,
+            tags: Array.isArray(data.tags) ? data.tags : [],
+            coverImage: data.coverImage,
+            gallery: Array.isArray(data.gallery) ? data.gallery : [],
+            status: data.status === 'draft' ? 'draft' : 'published',
+            pageOrder: Number(data.pageOrder) || 1,
+            customPageNumber: data.customPageNumber ? Number(data.customPageNumber) : undefined,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            publishedAt: data.publishedAt
+          });
+        }
       });
 
-      if (loadedEntries.length > 0) {
-        this.cache.entries = loadedEntries.sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-      }
+      this.cache.entries = loadedEntries.sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
 
       // 2. Fetch settings from Firestore
       const settingsSnap = await getDoc(doc(firestore, 'settings', 'general'));

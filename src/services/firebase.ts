@@ -17,14 +17,17 @@ import {
 } from "firebase/firestore";
 import { DiaryEntry, DiarySettings, MediaItem } from '../types';
 
+import firebaseAppletConfig from '../../firebase-applet-config.json';
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAxjKbrk-LNo8_3yaB7Sr1SF927X437dPc",
-  authDomain: "ash-s-diary.firebaseapp.com",
-  projectId: "ash-s-diary",
-  storageBucket: "ash-s-diary.firebasestorage.app",
-  messagingSenderId: "1073440074463",
-  appId: "1:1073440074463:web:107d5948041ed269a1d76a",
-  measurementId: "G-FM1G5M1VLM"
+  projectId: firebaseAppletConfig.projectId || "endless-quote-51ttq",
+  appId: firebaseAppletConfig.appId || "1:416026597596:web:322ba35009ebfc0a177c19",
+  apiKey: firebaseAppletConfig.apiKey || "AIzaSyAekzhVaPluAKCLRZlrojsPyQEM2lXRp7Q",
+  authDomain: firebaseAppletConfig.authDomain || "endless-quote-51ttq.firebaseapp.com",
+  firestoreDatabaseId: firebaseAppletConfig.firestoreDatabaseId || "ai-studio-ashspersonaldiar-7ba74978-4588-4e7f-a379-646dfc05ae20",
+  storageBucket: firebaseAppletConfig.storageBucket || "endless-quote-51ttq.firebasestorage.app",
+  messagingSenderId: firebaseAppletConfig.messagingSenderId || "416026597596",
+  measurementId: firebaseAppletConfig.measurementId || ""
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -37,7 +40,9 @@ if (typeof window !== "undefined") {
   }
 }
 
-export const db = getFirestore(app);
+export const db = firebaseConfig.firestoreDatabaseId
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 export const firestore = db; // Backwards-compatible alias
 
 /**
@@ -253,8 +258,14 @@ export async function saveEntryToFirestore(entryData: Partial<DiaryEntry>, id?: 
  * Direct delete from Firestore "diary_pages"
  */
 export async function deleteEntryFromFirestore(id: string): Promise<void> {
-  const docRef = doc(db, "diary_pages", id);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, "diary_pages", id);
+    await deleteDoc(docRef);
+    await deleteDoc(doc(db, "entries", id)).catch(() => {});
+  } catch (err) {
+    console.error("Error deleting entry from Firestore:", err);
+    throw err;
+  }
 }
 
 /**
