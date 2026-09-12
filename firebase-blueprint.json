@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "entries": {
+      "title": "Diary Entries",
+      "description": "Personal journal entries with rich text, moods, locations, tags, and publishing status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "mood": { "type": "string" },
+        "location": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "coverImage": { "type": "string" },
+        "gallery": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "pageOrder": { "type": "number" },
+        "customPageNumber": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "publishedAt": { "type": "string" }
+      },
+      "required": ["title", "content", "date", "status"]
+    },
+    "settings": {
+      "title": "Diary Settings",
+      "description": "Diary visual, aesthetic, and typography settings",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "coverText": { "type": "string" },
+        "authorName": { "type": "string" },
+        "paperColor": { "type": "string" },
+        "typography": { "type": "string" },
+        "soundEnabled": { "type": "boolean" },
+        "twoPageMode": { "type": "boolean" },
+        "mobileSwipeEnabled": { "type": "boolean" },
+        "theme": { "type": "string" },
+        "readingWidth": { "type": "string" },
+        "pageAnimationSpeed": { "type": "string" },
+        "autoPageTurn": { "type": "boolean" },
+        "readerAccessEnabled": { "type": "boolean" },
+        "editorAccessEnabled": { "type": "boolean" },
+        "lastUpdated": { "type": "string" }
+      }
+    },
+    "media": {
+      "title": "Media Items",
+      "description": "Uploaded diary photos and gallery assets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "filename": { "type": "string" },
+        "url": { "type": "string" },
+        "originalName": { "type": "string" },
+        "size": { "type": "number" },
+        "mimeType": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      }
+    }
+  }
+}

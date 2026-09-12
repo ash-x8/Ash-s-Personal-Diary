@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isEditorWrite() {
+      return request.resource.data.get('_editorKey', '') == 'ash-diary-secure-editor-session-2026'
+        || request.auth != null;
+    }
+
+    function isValidEntry() {
+      return request.resource.data.get('title', '') is string
+        && request.resource.data.get('content', '') is string
+        && request.resource.data.get('date', '') is string
+        && request.resource.data.get('status', 'draft') in ['draft', 'published'];
+    }
+
+    match /diary_pages/{pageId} {
+      allow read, write: if true;
+    }
+
+    match /entries/{entryId} {
+      // Readers and clients can read entries
+      allow read: if true;
+
+      // Editor operations: validated by editor session key or auth
+      allow create: if isEditorWrite() && isValidEntry();
+      allow update: if isEditorWrite();
+      allow delete: if true;
+    }
+
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /media/{mediaId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

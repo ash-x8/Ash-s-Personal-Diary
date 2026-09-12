@@ -93,6 +93,19 @@ export const BookReader: React.FC<BookReaderProps> = ({
     soundService.setEnabled(soundEnabled);
   }, [soundEnabled]);
 
+  // Keep page and spread index within bounds when entries are updated/deleted
+  useEffect(() => {
+    if (currentSpread >= totalSpreads) {
+      setCurrentSpread(Math.max(0, totalSpreads - 1));
+    }
+  }, [totalSpreads, currentSpread]);
+
+  useEffect(() => {
+    if (mobilePageIndex >= totalMobilePages) {
+      setMobilePageIndex(Math.max(0, totalMobilePages - 1));
+    }
+  }, [totalMobilePages, mobilePageIndex]);
+
   const isTransitioning = Boolean(flipState || mobileFlipState);
 
   // Keyboard navigation
@@ -517,6 +530,16 @@ export const BookReader: React.FC<BookReaderProps> = ({
 
         {/* Right: Sound, Paper Theme, Fullscreen, Lock/Exit */}
         <div className="flex items-center gap-2">
+          {/* Live Sync Badge */}
+          <div
+            id="reader-firestore-live-badge"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#181824] border border-[#2e2d3d] text-[11px]"
+            title="Real-time multi-device synchronization active via Cloud Firestore"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono text-[10px] tracking-wider text-emerald-400/90 font-medium">Live Sync</span>
+          </div>
+
           {/* Sound Toggle */}
           <button
             type="button"

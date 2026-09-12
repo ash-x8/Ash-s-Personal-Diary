@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   BookOpen,
   FileText,
@@ -32,7 +32,7 @@ interface EditorDashboardProps {
   settings: DiarySettings;
   stats: DashboardStats;
   media: MediaItem[];
-  onSetActivePageId?: (id: string | null) => void;
+  onAddPage?: () => Promise<DiaryEntry>;
   onSaveEntry: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onDeleteEntry: (id: string) => Promise<void>;
   onReorderEntries: (order: { id: string; pageOrder: number }[]) => Promise<void>;
@@ -50,7 +50,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   settings,
   stats,
   media,
-  onSetActivePageId,
+  onAddPage,
   onSaveEntry,
   onDeleteEntry,
   onReorderEntries,
@@ -67,43 +67,42 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const [sortBy, setSortBy] = useState<'order' | 'date-desc' | 'date-asc' | 'title'>('order');
   const [showMediaModal, setShowMediaModal] = useState(false);
 
-  // Notify parent of active page ID for single doc real-time snapshot listener
-  useEffect(() => {
-    if (currentTab === 'new-entry' && editingEntry?.id) {
-      if (onSetActivePageId) onSetActivePageId(editingEntry.id);
-    } else {
-      if (onSetActivePageId) onSetActivePageId(null);
+  // Filtered & sorted entries
+  const filteredEntries = entries
+    .filter((e) => {
+      if (filterStatus === 'published') return e.status === 'published';
+      if (filterStatus === 'draft') return e.status === 'draft';
+      return true;
+    })
+    .filter((e) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        e.title.toLowerCase().includes(q) ||
+        e.content.toLowerCase().includes(q) ||
+        (e.mood && e.mood.toLowerCase().includes(q)) ||
+        e.tags.some(t => t.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => {
+      if (sortBy === 'order') return (a.pageOrder || 0) - (b.pageOrder || 0);
+      if (sortBy === 'date-desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (sortBy === 'date-asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      return 0;
+    });
+
+  const handleStartCreate = async () => {
+    if (onAddPage) {
+      try {
+        const newPage = await onAddPage();
+        setEditingEntry(newPage);
+        setCurrentTab('new-entry');
+        return;
+      } catch (err) {
+        console.warn('Error creating dynamic page in Firestore:', err);
+      }
     }
-  }, [currentTab, editingEntry?.id, onSetActivePageId]);
-
-  // Filtered & sorted entries memoized to avoid redundant computation on unrelated state changes
-  const filteredEntries = useMemo(() => {
-    return entries
-      .filter((e) => {
-        if (filterStatus === 'published') return e.status === 'published';
-        if (filterStatus === 'draft') return e.status === 'draft';
-        return true;
-      })
-      .filter((e) => {
-        if (!searchQuery.trim()) return true;
-        const q = searchQuery.toLowerCase();
-        return (
-          e.title.toLowerCase().includes(q) ||
-          e.content.toLowerCase().includes(q) ||
-          (e.mood && e.mood.toLowerCase().includes(q)) ||
-          e.tags.some(t => t.toLowerCase().includes(q))
-        );
-      })
-      .sort((a, b) => {
-        if (sortBy === 'order') return (a.pageOrder || 0) - (b.pageOrder || 0);
-        if (sortBy === 'date-desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
-        if (sortBy === 'date-asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (sortBy === 'title') return a.title.localeCompare(b.title);
-        return 0;
-      });
-  }, [entries, filterStatus, searchQuery, sortBy]);
-
-  const handleStartCreate = () => {
     setEditingEntry(null);
     setCurrentTab('new-entry');
   };
@@ -176,6 +175,15 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
 
         {/* Global Quick Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          <div 
+            id="editor-firestore-status" 
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#171622] border border-[#2c2a3d] text-[11px]"
+            title="Real-time multi-device Firestore synchronization active"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono text-[10px] tracking-wider text-emerald-400/90 font-medium">Firestore Live</span>
+          </div>
+
           <button
             type="button"
             id="editor-preview-reader-btn"

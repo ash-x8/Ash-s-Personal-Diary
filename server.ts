@@ -53,6 +53,11 @@ app.use(authMiddleware);
 // Static uploads
 app.use('/uploads', express.static(UPLOAD_DIR));
 
+// Health check
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 /* ==========================================================================
    AUTHENTICATION ROUTES
    ========================================================================== */
@@ -111,16 +116,16 @@ app.post('/api/auth/lock', (_req, res) => {
    ========================================================================== */
 
 // Get entries (filtered by role)
-app.get('/api/entries', requireAuth, (req, res) => {
+app.get('/api/entries', requireAuth, async (req, res) => {
   const isEditor = req.user?.role === 'EDITOR';
-  const entries = db.getEntries(isEditor);
+  const entries = await db.getEntries(isEditor);
   res.json(entries);
 });
 
 // Get single entry
-app.get('/api/entries/:id', requireAuth, (req, res) => {
+app.get('/api/entries/:id', requireAuth, async (req, res) => {
   const isEditor = req.user?.role === 'EDITOR';
-  const entry = db.getEntry(req.params.id, isEditor);
+  const entry = await db.getEntry(req.params.id, isEditor);
 
   if (!entry) {
     res.status(404).json({ error: 'This page could not be opened.' });
@@ -131,7 +136,7 @@ app.get('/api/entries/:id', requireAuth, (req, res) => {
 });
 
 // Create entry (Editor only)
-app.post('/api/entries', requireEditor, (req, res) => {
+app.post('/api/entries', requireEditor, async (req, res) => {
   try {
     const { title, content, date, mood, location, tags, coverImage, gallery, status, pageOrder, customPageNumber } = req.body;
 
@@ -140,7 +145,7 @@ app.post('/api/entries', requireEditor, (req, res) => {
       return;
     }
 
-    const newEntry = db.createEntry({
+    const newEntry = await db.createEntry({
       title,
       content,
       date,
@@ -162,9 +167,9 @@ app.post('/api/entries', requireEditor, (req, res) => {
 });
 
 // Update entry (Editor only)
-app.put('/api/entries/:id', requireEditor, (req, res) => {
+app.put('/api/entries/:id', requireEditor, async (req, res) => {
   try {
-    const updated = db.updateEntry(req.params.id, req.body);
+    const updated = await db.updateEntry(req.params.id, req.body);
     if (!updated) {
       res.status(404).json({ error: 'Entry not found.' });
       return;
@@ -177,8 +182,8 @@ app.put('/api/entries/:id', requireEditor, (req, res) => {
 });
 
 // Delete entry (Editor only)
-app.delete('/api/entries/:id', requireEditor, (req, res) => {
-  const deleted = db.deleteEntry(req.params.id);
+app.delete('/api/entries/:id', requireEditor, async (req, res) => {
+  const deleted = await db.deleteEntry(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: 'Entry not found.' });
     return;
@@ -187,13 +192,13 @@ app.delete('/api/entries/:id', requireEditor, (req, res) => {
 });
 
 // Reorder entries (Editor only)
-app.put('/api/entries-order', requireEditor, (req, res) => {
+app.put('/api/entries-order', requireEditor, async (req, res) => {
   const { order } = req.body;
   if (!Array.isArray(order)) {
     res.status(400).json({ error: 'Invalid order array.' });
     return;
   }
-  db.reorderEntries(order);
+  await db.reorderEntries(order);
   res.json({ success: true });
 });
 
@@ -201,34 +206,37 @@ app.put('/api/entries-order', requireEditor, (req, res) => {
    SETTINGS & STATS ROUTES
    ========================================================================== */
 
-app.get('/api/settings', (_req, res) => {
-  res.json(db.getSettings());
+app.get('/api/settings', async (_req, res) => {
+  const settings = await db.getSettings();
+  res.json(settings);
 });
 
-app.put('/api/settings', requireEditor, (req, res) => {
-  const updated = db.updateSettings(req.body);
+app.put('/api/settings', requireEditor, async (req, res) => {
+  const updated = await db.updateSettings(req.body);
   res.json(updated);
 });
 
-app.get('/api/stats', requireEditor, (_req, res) => {
-  res.json(db.getStats());
+app.get('/api/stats', requireEditor, async (_req, res) => {
+  const stats = await db.getStats();
+  res.json(stats);
 });
 
 /* ==========================================================================
    MEDIA LIBRARY ROUTES
    ========================================================================== */
 
-app.get('/api/media', requireEditor, (_req, res) => {
-  res.json(db.getMedia());
+app.get('/api/media', requireEditor, async (_req, res) => {
+  const media = await db.getMedia();
+  res.json(media);
 });
 
-app.post('/api/media/upload', requireEditor, upload.single('image'), (req, res) => {
+app.post('/api/media/upload', requireEditor, upload.single('image'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'No image uploaded.' });
     return;
   }
 
-  const mediaItem = db.addMedia({
+  const mediaItem = await db.addMedia({
     id: `media-${Date.now()}`,
     filename: req.file.filename,
     url: `/uploads/${req.file.filename}`,
@@ -241,8 +249,8 @@ app.post('/api/media/upload', requireEditor, upload.single('image'), (req, res) 
   res.status(201).json(mediaItem);
 });
 
-app.delete('/api/media/:id', requireEditor, (req, res) => {
-  const mediaList = db.getMedia();
+app.delete('/api/media/:id', requireEditor, async (req, res) => {
+  const mediaList = await db.getMedia();
   const target = mediaList.find(m => m.id === req.params.id);
   if (target) {
     const filePath = path.resolve(UPLOAD_DIR, target.filename);
@@ -255,7 +263,7 @@ app.delete('/api/media/:id', requireEditor, (req, res) => {
       }
     }
   }
-  db.deleteMedia(req.params.id);
+  await db.deleteMedia(req.params.id);
   res.json({ success: true });
 });
 

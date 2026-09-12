@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { api } from './services/api';
 import { soundService } from './services/sound';
-import { subscribeToEntries, subscribeToSettings, subscribeToMedia, db } from './services/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import {
+  subscribeToPublishedEntries,
+  subscribeToAllEntries,
+  subscribeToSettings,
+  subscribeToMedia,
+  saveEntryToFirestore,
+  deleteEntryFromFirestore,
+  reorderEntriesInFirestore,
+  saveSettingsToFirestore,
+  fetchPublishedEntriesFromFirestore,
+  fetchAllEntriesFromFirestore,
+  handleAddPage
+} from './services/firebase';
 import { ClosedBookAccess } from './components/ClosedBookAccess';
 import { BookReader } from './components/BookReader';
 import { EditorDashboard } from './components/EditorDashboard';
@@ -22,8 +33,6 @@ export function App() {
   const [activeView, setActiveView] = useState<'closed-book' | 'reader' | 'editor' | 'preview'>('closed-book');
   
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
-  const [activePageId, setActivePageId] = useState<string | null>(null);
-
   const [settings, setSettings] = useState<DiarySettings>({
     title: "Ash's Personal Diary",
     subtitle: "Private Journal",
@@ -53,114 +62,24 @@ export function App() {
   });
 
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
-  // Calculate dashboard stats from entries array
-  useEffect(() => {
-    const published = entries.filter((e) => e.status === 'published').length;
-    const drafts = entries.filter((e) => e.status === 'draft').length;
-    const now = new Date();
-    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonth = entries.filter((e) => (e.date || '').startsWith(currentMonthPrefix)).length;
-
-    setStats({
-      totalEntries: entries.length,
-      published,
-      drafts,
-      thisMonth,
-      totalPages: published * 2 + 2,
-      lastUpdated: new Date().toISOString()
-    });
-  }, [entries]);
-
-  // Real-time Firestore subscriptions for live cross-device sync
-  useEffect(() => {
-    const unsubSettings = subscribeToSettings((updatedSettings) => {
-      setSettings(updatedSettings);
-      soundService.setEnabled(updatedSettings.soundEnabled !== false);
-    });
-
-    const unsubEntries = subscribeToEntries((fetchedEntries) => {
-      const activeEl = document.activeElement;
-      const isEditing = activeEl && (
-        activeEl.tagName === 'INPUT' ||
-        activeEl.tagName === 'TEXTAREA' ||
-        activeEl.getAttribute('contenteditable') === 'true' ||
-        activeEl.closest('#entry-editor-form') !== null
-      );
-
-      // If active user is typing in editor or input, avoid overwriting local editor state that causes re-renders and cursor jumping
-      if (isEditing) {
-        setEntries((prevEntries) => {
-          if (!prevEntries || prevEntries.length === 0) return fetchedEntries;
-          const isSame = prevEntries.length === fetchedEntries.length &&
-            prevEntries.every((item, index) => {
-              const f = fetchedEntries[index];
-              return f && f.id === item.id && f.updatedAt === item.updatedAt;
-            });
-          return isSame ? prevEntries : fetchedEntries;
-        });
-      } else {
-        setEntries(fetchedEntries);
-      }
-    });
-
-    const unsubMedia = subscribeToMedia((fetchedMedia) => {
-      setMedia(fetchedMedia);
-    });
-
-    return () => {
-      unsubSettings();
-      unsubEntries();
-      unsubMedia();
-    };
-  }, []);
-
-  // Multi-Device Real-Time Active Document Listener with Focus Lock
-  useEffect(() => {
-    if (!activePageId) return;
-
-    const docRef = doc(db, 'diary_pages', activePageId);
-    const unsubActiveDoc = onSnapshot(docRef, (docSnap) => {
-      if (!docSnap.exists()) return;
-
-      const activeEl = document.activeElement;
-      const isUserEditing = activeEl && (
-        activeEl.tagName === 'INPUT' ||
-        activeEl.tagName === 'TEXTAREA' ||
-        activeEl.getAttribute('contenteditable') === 'true' ||
-        activeEl.closest('#entry-editor-form') !== null
-      );
-
-      // Focus Lock Rule: When incoming snapshot updates arrive from distant devices,
-      // do NOT overwrite local editor state if user currently holds focus in active editor.
-      if (isUserEditing) {
-        return;
-      }
-
-      const data = docSnap.data();
-      const updatedEntry = {
-        ...data,
-        id: docSnap.id,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt || new Date().toISOString(),
-        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt || new Date().toISOString()
-      } as DiaryEntry;
-
-      setEntries((prev) => prev.map((e) => (e.id === updatedEntry.id ? updatedEntry : e)));
-    });
-
-    return () => {
-      unsubActiveDoc();
-    };
-  }, [activePageId]);
-
-  // Initialize session
+  // Initialize session and book data
   useEffect(() => {
     const initApp = async () => {
       try {
+        // Check active session
         const currentSession = await api.getSession();
         setSession(currentSession);
 
+        // Fetch settings
+        const loadedSettings = await api.getSettings();
+        setSettings(loadedSettings);
+        soundService.setEnabled(loadedSettings.soundEnabled !== false);
+
         if (currentSession.authenticated && currentSession.role) {
+          await loadDataForRole(currentSession.role);
           setActiveView(currentSession.role === 'EDITOR' ? 'editor' : 'reader');
         } else {
           setActiveView('closed-book');
@@ -175,15 +94,122 @@ export function App() {
     initApp();
   }, []);
 
-  // Filter visible entries based on session role
-  const visibleEntries = session.role === 'READER'
-    ? entries.filter(e => e.status === 'published')
-    : entries;
+  // Real-time Firestore Synchronization across all devices (onSnapshot)
+  useEffect(() => {
+    if (!session.authenticated || !session.role) {
+      setIsLiveConnected(false);
+      return;
+    }
+
+    // 1. Live settings subscription
+    const unsubSettings = subscribeToSettings((liveSettings) => {
+      setSettings((prev) => ({ ...prev, ...liveSettings }));
+      if (liveSettings.soundEnabled !== undefined) {
+        soundService.setEnabled(liveSettings.soundEnabled);
+      }
+      setIsLiveConnected(true);
+    });
+
+    // 2. Live entries subscription (role-aware: readers see published, editor sees all)
+    let unsubEntries: () => void;
+    if (session.role === 'EDITOR') {
+      unsubEntries = subscribeToAllEntries((liveEntries) => {
+        setEntries(liveEntries);
+        setIsLiveConnected(true);
+        setStats((prev) => ({
+          ...prev,
+          totalEntries: liveEntries.length,
+          published: liveEntries.filter(e => e.status === 'published').length,
+          drafts: liveEntries.filter(e => e.status === 'draft').length,
+          totalPages: liveEntries.length,
+          lastUpdated: new Date().toISOString()
+        }));
+      });
+    } else {
+      unsubEntries = subscribeToPublishedEntries((liveEntries) => {
+        setEntries(liveEntries);
+        setIsLiveConnected(true);
+      });
+    }
+
+    // 3. Live media subscription (for Editor)
+    let unsubMedia: (() => void) | undefined;
+    if (session.role === 'EDITOR') {
+      unsubMedia = subscribeToMedia((liveMedia) => {
+        setMedia(liveMedia);
+      });
+    }
+
+    // 4. Background visibility sync check for offline/reconnect resiliency
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && session.role) {
+        loadDataForRole(session.role);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      unsubSettings();
+      if (unsubEntries) unsubEntries();
+      if (unsubMedia) unsubMedia();
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [session.authenticated, session.role]);
+
+  const loadDataForRole = async (role: UserRole) => {
+    try {
+      if (role === 'READER') {
+        const firestoreEntries = await fetchPublishedEntriesFromFirestore();
+        if (firestoreEntries && firestoreEntries.length > 0) {
+          setEntries(firestoreEntries);
+        } else {
+          const entryList = await api.getEntries();
+          setEntries(entryList);
+        }
+      } else {
+        const firestoreEntries = await fetchAllEntriesFromFirestore();
+        if (firestoreEntries && firestoreEntries.length > 0) {
+          setEntries(firestoreEntries);
+          setStats((prev) => ({
+            ...prev,
+            totalEntries: firestoreEntries.length,
+            published: firestoreEntries.filter(e => e.status === 'published').length,
+            drafts: firestoreEntries.filter(e => e.status === 'draft').length,
+            totalPages: firestoreEntries.length,
+            lastUpdated: new Date().toISOString()
+          }));
+        } else {
+          const entryList = await api.getEntries();
+          setEntries(entryList);
+        }
+
+        const [dashboardStats, mediaList] = await Promise.all([
+          api.getStats().catch(() => ({
+            totalEntries: entries.length,
+            published: entries.filter(e => e.status === 'published').length,
+            drafts: entries.filter(e => e.status === 'draft').length,
+            thisMonth: entries.length,
+            totalPages: entries.length,
+            lastUpdated: new Date().toISOString()
+          })),
+          api.getMedia().catch(() => [])
+        ]);
+        if (dashboardStats) setStats(dashboardStats);
+        if (mediaList) setMedia(mediaList);
+      }
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Error loading diary records.');
+    }
+  };
 
   // Handle access code unlock from Closed Book
   const handleUnlockCode = async (code: string) => {
     const res = await api.unlock(code);
     setSession({ authenticated: true, role: res.role });
+    await loadDataForRole(res.role);
     return res;
   };
 
@@ -206,36 +232,94 @@ export function App() {
     setActiveView('closed-book');
   };
 
-  // CRUD actions for Editor (real-time listeners automatically update state)
+  // CRUD actions for Editor - saves directly to Cloud Firestore so ALL readers instantly receive updates
   const handleSaveEntry = async (entryData: Partial<DiaryEntry>, _publish: boolean, existingId?: string): Promise<DiaryEntry> => {
-    if (existingId) {
-      return await api.updateEntry(existingId, entryData);
-    } else {
-      return await api.createEntry(entryData);
+    // 1. Direct write to Cloud Firestore - triggers real-time onSnapshot on all readers and devices!
+    const saved = await saveEntryToFirestore(entryData, existingId);
+
+    // 2. Sync to API / local cache in background
+    try {
+      if (existingId) {
+        await api.updateEntry(existingId, entryData);
+      } else {
+        await api.createEntry(entryData);
+      }
+    } catch (err) {
+      console.warn('API sync deferred:', err);
     }
+
+    // 3. Update local state immediately for instant feedback
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === saved.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      }
+      return [...prev, saved].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
+    });
+
+    return saved;
   };
 
   const handleDeleteEntry = async (id: string) => {
-    await api.deleteEntry(id);
+    // 1. Delete directly from Cloud Firestore
+    await deleteEntryFromFirestore(id);
+
+    // 2. Sync to API
+    try {
+      await api.deleteEntry(id);
+    } catch {}
+
+    // 3. Update local state immediately
+    setEntries((prev) => prev.filter((e) => e.id !== id));
   };
 
   const handleReorderEntries = async (order: { id: string; pageOrder: number }[]) => {
-    await api.reorderEntries(order);
+    // 1. Reorder directly in Cloud Firestore
+    await reorderEntriesInFirestore(order);
+
+    // 2. Sync to API
+    try {
+      await api.reorderEntries(order);
+    } catch {}
+
+    // 3. Update local state immediately
+    setEntries((prev) => {
+      const orderMap = new Map(order.map((o) => [o.id, o.pageOrder]));
+      return [...prev]
+        .map((e) => ({ ...e, pageOrder: orderMap.get(e.id) ?? e.pageOrder }))
+        .sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
+    });
   };
 
   const handleSaveSettings = async (updates: Partial<DiarySettings>) => {
-    await api.updateSettings(updates);
+    // 1. Save directly to Cloud Firestore
+    await saveSettingsToFirestore(updates);
+
+    // 2. Sync to API
+    try {
+      await api.updateSettings(updates);
+    } catch {}
+
+    setSettings((prev) => ({ ...prev, ...updates }));
+    if (updates.soundEnabled !== undefined) {
+      soundService.setEnabled(updates.soundEnabled);
+    }
   };
 
   const handleUploadMedia = async (file: File) => {
-    return await api.uploadMedia(file);
+    const item = await api.uploadMedia(file);
+    setMedia([item, ...media]);
+    return item;
   };
 
   const handleDeleteMedia = async (id: string) => {
     await api.deleteMedia(id);
+    setMedia(media.filter(m => m.id !== id));
   };
 
-  // Loading Screen
+  // Loading Screen (Requirement 29)
   if (isInitializing) {
     return (
       <div 
@@ -271,7 +355,7 @@ export function App() {
       {/* View 2: Digital Book Reader (Reader Mode) */}
       {activeView === 'reader' && (
         <BookReader
-          entries={visibleEntries}
+          entries={entries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}
@@ -285,7 +369,7 @@ export function App() {
           settings={settings}
           stats={stats}
           media={media}
-          onSetActivePageId={setActivePageId}
+          onAddPage={handleAddPage}
           onSaveEntry={handleSaveEntry}
           onDeleteEntry={handleDeleteEntry}
           onReorderEntries={handleReorderEntries}
@@ -300,7 +384,7 @@ export function App() {
       {/* View 4: Editor Live Book Preview (Testing Mode) */}
       {activeView === 'preview' && (
         <BookReader
-          entries={visibleEntries}
+          entries={entries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}

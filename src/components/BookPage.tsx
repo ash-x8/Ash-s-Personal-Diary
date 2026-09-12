@@ -262,7 +262,11 @@ const BookEntryLeftPageComponent: React.FC<BookEntryLeftPageProps> = ({ entry, e
           {formattedDate}
         </div>
 
-        <h2 className="font-serif-book text-2xl sm:text-3xl font-semibold tracking-tight leading-snug mb-3">
+        <h2 
+          dir="ltr"
+          style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
+          className="font-serif-book text-2xl sm:text-3xl font-semibold tracking-tight leading-snug mb-3 text-left ltr"
+        >
           {entry.title}
         </h2>
 
@@ -341,7 +345,9 @@ const BookEntryRightPageComponent: React.FC<BookEntryRightPageProps> = ({ entry 
     <div className="h-full flex flex-col justify-between">
       {/* Editorial Content */}
       <div 
-        className="font-serif-book text-base sm:text-lg leading-relaxed sm:leading-[1.75] space-y-4 diary-prose select-text"
+        dir="ltr"
+        style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
+        className="font-serif-book text-base sm:text-lg leading-relaxed sm:leading-[1.75] space-y-4 diary-prose select-text text-left ltr"
         dangerouslySetInnerHTML={{ __html: entry.content }}
       />
 
