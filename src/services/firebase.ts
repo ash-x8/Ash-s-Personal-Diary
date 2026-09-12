@@ -1,4 +1,5 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
 import {
   getFirestore,
   collection,
@@ -9,8 +10,11 @@ import {
   updateDoc,
   deleteDoc,
   onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
   Unsubscribe
-} from 'firebase/firestore';
+} from "firebase/firestore";
 import { DiaryEntry, DiarySettings, MediaItem } from '../types';
 import { DEFAULT_ENTRIES, DEFAULT_SETTINGS } from './localDb';
 
@@ -25,7 +29,11 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const firestore = getFirestore(app);
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
+export const db = getFirestore(app);
+
+// Legacy alias for compatibility if needed
+export const firestore = db;
 
 // Collection References
 const ENTRIES_COLLECTION = 'diary_pages';
@@ -38,16 +46,20 @@ let isSeeded = false;
 export async function seedFirestoreIfEmpty() {
   if (isSeeded) return;
   try {
-    const entriesSnap = await getDocs(collection(firestore, ENTRIES_COLLECTION));
+    const entriesSnap = await getDocs(collection(db, ENTRIES_COLLECTION));
     if (entriesSnap.empty) {
       for (const entry of DEFAULT_ENTRIES) {
-        await setDoc(doc(firestore, ENTRIES_COLLECTION, entry.id), entry);
+        await setDoc(doc(db, ENTRIES_COLLECTION, entry.id), {
+          ...entry,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
       }
     }
 
-    const settingsDocSnap = await getDoc(doc(firestore, SETTINGS_COLLECTION, SETTINGS_DOC_ID));
+    const settingsDocSnap = await getDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID));
     if (!settingsDocSnap.exists()) {
-      await setDoc(doc(firestore, SETTINGS_COLLECTION, SETTINGS_DOC_ID), DEFAULT_SETTINGS);
+      await setDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID), DEFAULT_SETTINGS);
     }
     isSeeded = true;
   } catch (err) {
@@ -58,15 +70,21 @@ export async function seedFirestoreIfEmpty() {
 // Real-time Listeners
 export function subscribeToEntries(callback: (entries: DiaryEntry[]) => void): Unsubscribe {
   seedFirestoreIfEmpty();
-  const entriesRef = collection(firestore, ENTRIES_COLLECTION);
+  const entriesQuery = query(collection(db, ENTRIES_COLLECTION), orderBy("createdAt", "desc"));
   return onSnapshot(
-    entriesRef,
+    entriesQuery,
     (snapshot) => {
       const entries: DiaryEntry[] = [];
       snapshot.forEach((docSnap) => {
-        entries.push(docSnap.data() as DiaryEntry);
+        const data = docSnap.data();
+        entries.push({
+          ...data,
+          id: docSnap.id,
+          // Convert Firestore Timestamp to string ISO if necessary
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt || new Date().toISOString()
+        } as DiaryEntry);
       });
-      entries.sort((a, b) => (a.pageOrder ?? 0) - (b.pageOrder ?? 0));
       callback(entries);
     },
     (error) => {
@@ -77,7 +95,7 @@ export function subscribeToEntries(callback: (entries: DiaryEntry[]) => void): U
 
 export function subscribeToSettings(callback: (settings: DiarySettings) => void): Unsubscribe {
   seedFirestoreIfEmpty();
-  const settingsDocRef = doc(firestore, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+  const settingsDocRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
   return onSnapshot(
     settingsDocRef,
     (docSnap) => {
@@ -93,7 +111,7 @@ export function subscribeToSettings(callback: (settings: DiarySettings) => void)
 
 export function subscribeToMedia(callback: (media: MediaItem[]) => void): Unsubscribe {
   seedFirestoreIfEmpty();
-  const mediaRef = collection(firestore, MEDIA_COLLECTION);
+  const mediaRef = collection(db, MEDIA_COLLECTION);
   return onSnapshot(
     mediaRef,
     (snapshot) => {
@@ -111,41 +129,53 @@ export function subscribeToMedia(callback: (media: MediaItem[]) => void): Unsubs
 }
 
 // Data Mutation Operations (Add, Edit, Delete)
-export async function createFirestoreEntry(entryData: Partial<DiaryEntry>): Promise<DiaryEntry> {
+export async function handleAddPage(entryData: Partial<DiaryEntry> = {}): Promise<DiaryEntry> {
   const id = `entry-${Date.now()}`;
   const now = new Date().toISOString();
 
-  // Calculate default page order
-  const entriesSnap = await getDocs(collection(firestore, ENTRIES_COLLECTION));
+  const entriesSnap = await getDocs(collection(db, ENTRIES_COLLECTION));
   const count = entriesSnap.size;
-  const title = entryData.title || 'Untitled Entry';
+  const title = entryData.title || "Untitled Page";
+  const content = entryData.content || "";
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-  const newEntry: DiaryEntry = {
-    id,
+  const newEntryDoc = {
     title,
     slug,
-    content: entryData.content || '',
+    content,
     date: entryData.date || now.split('T')[0],
-    createdAt: now,
-    updatedAt: now,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
     publishedAt: entryData.status === 'published' ? now : undefined,
     status: entryData.status || 'draft',
     pageOrder: entryData.pageOrder !== undefined ? entryData.pageOrder : count + 1,
     customPageNumber: entryData.customPageNumber !== undefined ? entryData.customPageNumber : count + 1,
-    mood: entryData.mood,
-    location: entryData.location,
+    mood: entryData.mood || null,
+    location: entryData.location || null,
     tags: entryData.tags || [],
-    coverImage: entryData.coverImage,
+    coverImage: entryData.coverImage || null,
     gallery: entryData.gallery || []
   };
 
-  await setDoc(doc(firestore, ENTRIES_COLLECTION, id), newEntry);
-  return newEntry;
+  const docRef = doc(db, ENTRIES_COLLECTION, id);
+  await setDoc(docRef, newEntryDoc);
+
+  return {
+    id,
+    ...newEntryDoc,
+    createdAt: now,
+    updatedAt: now,
+    mood: entryData.mood,
+    location: entryData.location,
+    coverImage: entryData.coverImage
+  } as DiaryEntry;
 }
 
+// Alias for createFirestoreEntry
+export const createFirestoreEntry = handleAddPage;
+
 export async function updateFirestoreEntry(id: string, updates: Partial<DiaryEntry>): Promise<DiaryEntry> {
-  const docRef = doc(firestore, ENTRIES_COLLECTION, id);
+  const docRef = doc(db, ENTRIES_COLLECTION, id);
   const existingSnap = await getDoc(docRef);
 
   if (!existingSnap.exists()) {
@@ -153,31 +183,36 @@ export async function updateFirestoreEntry(id: string, updates: Partial<DiaryEnt
   }
 
   const existingData = existingSnap.data() as DiaryEntry;
-  const updatedEntry: DiaryEntry = {
-    ...existingData,
+  const updatedDoc = {
     ...updates,
-    updatedAt: new Date().toISOString()
+    updatedAt: serverTimestamp()
   };
 
-  await setDoc(docRef, updatedEntry, { merge: true });
-  return updatedEntry;
+  await setDoc(docRef, updatedDoc, { merge: true });
+
+  const now = new Date().toISOString();
+  return {
+    ...existingData,
+    ...updates,
+    updatedAt: now
+  };
 }
 
 export async function deleteFirestoreEntry(id: string): Promise<boolean> {
-  await deleteDoc(doc(firestore, ENTRIES_COLLECTION, id));
+  await deleteDoc(doc(db, ENTRIES_COLLECTION, id));
   return true;
 }
 
 export async function reorderFirestoreEntries(order: { id: string; pageOrder: number }[]): Promise<boolean> {
   for (const item of order) {
-    const docRef = doc(firestore, ENTRIES_COLLECTION, item.id);
-    await updateDoc(docRef, { pageOrder: item.pageOrder, customPageNumber: item.pageOrder, updatedAt: new Date().toISOString() });
+    const docRef = doc(db, ENTRIES_COLLECTION, item.id);
+    await updateDoc(docRef, { pageOrder: item.pageOrder, customPageNumber: item.pageOrder, updatedAt: serverTimestamp() });
   }
   return true;
 }
 
 export async function updateFirestoreSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
-  const docRef = doc(firestore, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+  const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
   const snap = await getDoc(docRef);
   const existing = snap.exists() ? snap.data() as DiarySettings : DEFAULT_SETTINGS;
 
@@ -192,11 +227,11 @@ export async function updateFirestoreSettings(updates: Partial<DiarySettings>): 
 }
 
 export async function addFirestoreMedia(mediaItem: MediaItem): Promise<MediaItem> {
-  await setDoc(doc(firestore, MEDIA_COLLECTION, mediaItem.id), mediaItem);
+  await setDoc(doc(db, MEDIA_COLLECTION, mediaItem.id), mediaItem);
   return mediaItem;
 }
 
 export async function deleteFirestoreMedia(id: string): Promise<boolean> {
-  await deleteDoc(doc(firestore, MEDIA_COLLECTION, id));
+  await deleteDoc(doc(db, MEDIA_COLLECTION, id));
   return true;
 }

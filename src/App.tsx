@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from './services/api';
 import { soundService } from './services/sound';
-import { subscribeToEntries, subscribeToSettings, subscribeToMedia } from './services/firebase';
+import { subscribeToEntries, subscribeToSettings, subscribeToMedia, db } from './services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { ClosedBookAccess } from './components/ClosedBookAccess';
 import { BookReader } from './components/BookReader';
 import { EditorDashboard } from './components/EditorDashboard';
@@ -21,6 +22,8 @@ export function App() {
   const [activeView, setActiveView] = useState<'closed-book' | 'reader' | 'editor' | 'preview'>('closed-book');
   
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+
   const [settings, setSettings] = useState<DiarySettings>({
     title: "Ash's Personal Diary",
     subtitle: "Private Journal",
@@ -81,10 +84,11 @@ export function App() {
       const isEditing = activeEl && (
         activeEl.tagName === 'INPUT' ||
         activeEl.tagName === 'TEXTAREA' ||
-        activeEl.getAttribute('contenteditable') === 'true'
+        activeEl.getAttribute('contenteditable') === 'true' ||
+        activeEl.closest('#entry-editor-form') !== null
       );
 
-      // If active user is typing in editor or input, avoid overwriting state that causes re-renders and cursor jumping
+      // If active user is typing in editor or input, avoid overwriting local editor state that causes re-renders and cursor jumping
       if (isEditing) {
         setEntries((prevEntries) => {
           if (!prevEntries || prevEntries.length === 0) return fetchedEntries;
@@ -110,6 +114,44 @@ export function App() {
       unsubMedia();
     };
   }, []);
+
+  // Multi-Device Real-Time Active Document Listener with Focus Lock
+  useEffect(() => {
+    if (!activePageId) return;
+
+    const docRef = doc(db, 'diary_pages', activePageId);
+    const unsubActiveDoc = onSnapshot(docRef, (docSnap) => {
+      if (!docSnap.exists()) return;
+
+      const activeEl = document.activeElement;
+      const isUserEditing = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.getAttribute('contenteditable') === 'true' ||
+        activeEl.closest('#entry-editor-form') !== null
+      );
+
+      // Focus Lock Rule: When incoming snapshot updates arrive from distant devices,
+      // do NOT overwrite local editor state if user currently holds focus in active editor.
+      if (isUserEditing) {
+        return;
+      }
+
+      const data = docSnap.data();
+      const updatedEntry = {
+        ...data,
+        id: docSnap.id,
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt || new Date().toISOString()
+      } as DiaryEntry;
+
+      setEntries((prev) => prev.map((e) => (e.id === updatedEntry.id ? updatedEntry : e)));
+    });
+
+    return () => {
+      unsubActiveDoc();
+    };
+  }, [activePageId]);
 
   // Initialize session
   useEffect(() => {
@@ -193,7 +235,7 @@ export function App() {
     await api.deleteMedia(id);
   };
 
-  // Loading Screen (Requirement 29)
+  // Loading Screen
   if (isInitializing) {
     return (
       <div 
@@ -243,6 +285,7 @@ export function App() {
           settings={settings}
           stats={stats}
           media={media}
+          onSetActivePageId={setActivePageId}
           onSaveEntry={handleSaveEntry}
           onDeleteEntry={handleDeleteEntry}
           onReorderEntries={handleReorderEntries}

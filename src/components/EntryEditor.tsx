@@ -158,7 +158,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     }
   }, [initialEntry?.id]);
 
-  // Setup compositionstart and compositionend event listeners for Sinhala / IME support
+  // Composition event listeners for Sinhala / IME support on contentEditable div
   useEffect(() => {
     const el = contentEditorRef.current;
     if (!el) return;
@@ -208,7 +208,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
 
     autoSaveTimerRef.current = setTimeout(() => {
       performAutoSave();
-    }, 1000);
+    }, 500);
 
     return () => {
       if (autoSaveTimerRef.current) {
@@ -391,8 +391,19 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             <input
               type="text"
               dir="ltr"
-              style={{ textAlign: 'left' }}
+              style={{ textAlign: 'left', direction: 'ltr' }}
               value={title}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={(e) => {
+                isComposingRef.current = false;
+                setTitle(e.currentTarget.value);
+                if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+                autoSaveTimerRef.current = setTimeout(() => {
+                  performAutoSave();
+                }, 500);
+              }}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. A Quiet Night, Things I Never Said…"
               className="w-full h-12 bg-[#121219] border border-[#2d2c3d] focus:border-[#d4af37] rounded-xl px-4 font-serif-book text-xl text-[#f4eedf] placeholder-[#5a554a] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30"
@@ -408,6 +419,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               </label>
               <input
                 type="date"
+                dir="ltr"
+                style={{ textAlign: 'left', direction: 'ltr' }}
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full h-10 bg-[#121219] border border-[#2d2c3d] focus:border-[#d4af37] rounded-lg px-3 text-sm text-[#ded8cc] focus:outline-none"
@@ -492,7 +505,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               ref={contentEditorRef}
               contentEditable
               dir="ltr"
-              style={{ textAlign: 'left' }}
+              style={{ textAlign: 'left', direction: 'ltr' }}
               onInput={() => {
                 if (!isComposingRef.current && contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);
@@ -538,6 +551,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               </label>
               <input
                 type="text"
+                dir="ltr"
+                style={{ textAlign: 'left', direction: 'ltr' }}
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder="e.g. Candlelit Study, High Street…"
@@ -551,6 +566,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               </label>
               <input
                 type="text"
+                dir="ltr"
+                style={{ textAlign: 'left', direction: 'ltr' }}
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
                 placeholder="Memories, Autumn, Rain"
