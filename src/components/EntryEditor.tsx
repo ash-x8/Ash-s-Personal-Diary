@@ -149,6 +149,15 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     }
   }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId]);
 
+  // Initialize innerHTML on initial load / entry change without re-rendering contentEditable on every stroke
+  useEffect(() => {
+    if (contentEditorRef.current) {
+      if (contentEditorRef.current.innerHTML !== content) {
+        contentEditorRef.current.innerHTML = content || '<p></p>';
+      }
+    }
+  }, [initialEntry?.id]);
+
   // Setup compositionstart and compositionend event listeners for Sinhala / IME support
   useEffect(() => {
     const el = contentEditorRef.current;
@@ -163,7 +172,6 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       if (contentEditorRef.current) {
         setContent(contentEditorRef.current.innerHTML);
       }
-      // Schedule post-composition auto-save
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
       }
@@ -210,16 +218,8 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, performAutoSave]);
 
   const handleSave = async (shouldPublish: boolean) => {
-    if (!title.trim()) {
-      alert('Please provide a title for the entry.');
-      return;
-    }
-
+    const saveTitle = title.trim() || 'Untitled Entry';
     const currentHTML = contentEditorRef.current ? contentEditorRef.current.innerHTML : content;
-    if (!currentHTML.trim() || currentHTML === '<p></p>') {
-      alert('Please write some thoughts for the entry.');
-      return;
-    }
 
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
@@ -233,11 +233,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         .map(t => t.trim().replace(/^#/, ''))
         .filter(Boolean);
 
-      await onSave(
+      const result = await onSave(
         {
-          title: title.trim(),
+          title: saveTitle,
           date,
-          content: currentHTML,
+          content: currentHTML || '<p></p>',
           mood: mood.trim() || undefined,
           location: location.trim() || undefined,
           tags: parsedTags,
@@ -250,6 +250,9 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         shouldPublish,
         currentId
       );
+      if (result && result.id) {
+        setCurrentId(result.id);
+      }
       setAutoSaveStatus('saved');
     } catch (err: any) {
       alert(err.message || 'Error saving entry.');
@@ -490,7 +493,6 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               contentEditable
               dir="ltr"
               style={{ textAlign: 'left' }}
-              dangerouslySetInnerHTML={{ __html: content }}
               onInput={() => {
                 if (!isComposingRef.current && contentEditorRef.current) {
                   setContent(contentEditorRef.current.innerHTML);
