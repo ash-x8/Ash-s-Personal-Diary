@@ -6,6 +6,7 @@ import {
   MediaItem,
   UserRole
 } from '../types';
+import { compressImage } from '../utils/imageCompressor';
 
 const STORAGE_KEYS = {
   SESSION: 'ash_diary_session',
@@ -224,26 +225,55 @@ class LocalDatabase {
   }
 
   public async uploadMedia(file: File): Promise<MediaItem> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const mediaList = this.getMedia();
-        const newItem: MediaItem = {
-          id: `media-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          url: dataUrl,
-          filename: file.name,
-          originalName: file.name,
-          size: file.size,
-          mimeType: file.type || 'image/jpeg',
-          uploadedAt: new Date().toISOString()
-        };
-        this.setStorage(STORAGE_KEYS.MEDIA, [newItem, ...mediaList]);
-        resolve(newItem);
+    try {
+      const compressed = await compressImage(file, {
+        maxDimension: 1200,
+        quality: 0.78,
+        maxSizeBytes: 140 * 1024
+      });
+      const mediaList = this.getMedia();
+      const newItem: MediaItem = {
+        id: `media-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        url: compressed.dataUrl,
+        filename: file.name,
+        originalName: file.name,
+        size: compressed.size,
+        mimeType: 'image/jpeg',
+        uploadedAt: new Date().toISOString()
       };
-      reader.onerror = () => reject(new Error('Failed to read image file.'));
-      reader.readAsDataURL(file);
-    });
+      this.setStorage(STORAGE_KEYS.MEDIA, [newItem, ...mediaList]);
+      return newItem;
+    } catch {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const rawUrl = reader.result as string;
+            const compressed = await compressImage(rawUrl, {
+              maxDimension: 1000,
+              quality: 0.75,
+              maxSizeBytes: 120 * 1024
+            });
+            const mediaList = this.getMedia();
+            const newItem: MediaItem = {
+              id: `media-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+              url: compressed.dataUrl,
+              filename: file.name,
+              originalName: file.name,
+              size: compressed.size,
+              mimeType: 'image/jpeg',
+              uploadedAt: new Date().toISOString()
+            };
+            this.setStorage(STORAGE_KEYS.MEDIA, [newItem, ...mediaList]);
+            resolve(newItem);
+          } catch (e) {
+            reject(new Error('Failed to process image.'));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read image file.'));
+        reader.readAsDataURL(file);
+      });
+    }
   }
 
   public deleteMedia(id: string): { success: boolean } {

@@ -324,8 +324,13 @@ export function App() {
         id="app-loading-screen"
         className="min-h-screen w-full flex flex-col items-center justify-center bg-[#07070a] text-[#f4eedf] p-4 select-none"
       >
-        <div className="w-12 h-12 rounded-full border border-[#d4af37]/40 flex items-center justify-center mb-5 animate-pulse">
-          <BookOpen className="w-6 h-6 text-[#d4af37]" />
+        <div className="w-16 h-16 rounded-full border border-[#d4af37]/60 overflow-hidden shadow-2xl mb-5 animate-pulse bg-black ring-2 ring-[#d4af37]/20">
+          <img
+            src="/logo.png"
+            alt="Ash's Personal Diary Logo"
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
         </div>
         <h2 className="font-cinzel text-lg tracking-[0.25em] uppercase text-[#e8c872]">
           Opening your diary…

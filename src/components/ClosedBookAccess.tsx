@@ -106,10 +106,15 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
 
           {/* Book Header Crest */}
           <div className="pt-2 flex flex-col items-center">
-            <div className="w-8 h-8 rounded-full border border-[#d4af37]/30 flex items-center justify-center mb-3">
-              <Sparkles className="w-3.5 h-3.5 text-[#d4af37]/70" />
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-[#d4af37]/60 overflow-hidden shadow-2xl bg-black mb-2 ring-2 ring-[#d4af37]/25">
+              <img
+                src="/logo.png"
+                alt="Ash's Personal Diary Logo"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
-            <span className="text-[10px] tracking-[0.28em] uppercase text-[#d4af37]/60 font-cinzel">
+            <span className="text-[10px] tracking-[0.28em] uppercase text-[#d4af37]/80 font-cinzel font-semibold">
               {bookSubtitle}
             </span>
           </div>
@@ -239,12 +244,23 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
           </div>
         </div>
 
-        {/* Quiet footer prompt */}
-        <div className="mt-4 text-center">
+        {/* Site footer credit */}
+        <footer className="mt-5 text-center space-y-1.5 pb-2">
           <p className="text-[11px] text-[#71695b] tracking-wider font-serif-book italic">
             Protected personal diary • Authorized access only
           </p>
-        </div>
+          <p className="text-xs text-[#8e8574] font-cinzel tracking-wider">
+            Created And Designed By{' '}
+            <a
+              href="https://ash-wickramasinghe.site"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#d4af37] hover:text-[#f3e1a0] underline underline-offset-4 transition-colors font-semibold"
+            >
+              Ash Wickramasinghe
+            </a>
+          </p>
+        </footer>
       </div>
 
       {/* Opening sequence overlay */}
@@ -253,8 +269,13 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
           aria-live="polite"
           className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07070a] text-center p-6 animate-fade-in"
         >
-          <div className="w-16 h-16 rounded-full border border-[#d4af37]/40 flex items-center justify-center mb-6 animate-pulse">
-            <BookOpen className="w-8 h-8 text-[#d4af37]" />
+          <div className="w-20 h-20 rounded-full border border-[#d4af37]/60 overflow-hidden shadow-2xl mb-6 animate-pulse bg-black">
+            <img
+              src="/logo.png"
+              alt="Ash's Personal Diary Logo"
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <h2 className="font-cinzel text-xl sm:text-2xl text-[#f5ebd7] tracking-[0.2em] uppercase mb-2">
             {unlockedRole === 'EDITOR' ? "Welcome Back, Ash" : "Opening Your Pages"}

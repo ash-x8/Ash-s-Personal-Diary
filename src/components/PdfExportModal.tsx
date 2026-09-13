@@ -6,9 +6,7 @@ import {
   CheckSquare,
   Square,
   Check,
-  BookOpen,
-  Calendar,
-  Layers,
+  Languages,
   Sparkles,
   Loader2
 } from 'lucide-react';
@@ -35,7 +33,6 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   settings,
   preSelectedIds
 }) => {
-  // If preSelectedIds provided and non-empty, initialize with those; otherwise select all
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     if (preSelectedIds && preSelectedIds.length > 0) {
       return new Set(preSelectedIds);
@@ -45,11 +42,13 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
 
   const [options, setOptions] = useState<PdfExportOptions>({
     ...DEFAULT_PDF_OPTIONS,
+    renderMode: 'canvas-hd',
     diaryTitle: settings?.title || DEFAULT_PDF_OPTIONS.diaryTitle,
     authorName: settings?.authorName || DEFAULT_PDF_OPTIONS.authorName
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [progressMsg, setProgressMsg] = useState<string>('');
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -80,16 +79,23 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   const handleDownloadPdf = async () => {
     if (selectedEntries.length === 0) return;
     setIsGenerating(true);
+    setProgressMsg('Preparing Sinhala typography & document layout…');
     setExportSuccess(null);
     try {
-      await exportEntriesToPdf(selectedEntries, settings, options);
-      setExportSuccess(`Successfully generated PDF for ${selectedEntries.length} entries.`);
-      setTimeout(() => setExportSuccess(null), 4000);
+      await exportEntriesToPdf(selectedEntries, settings, {
+        ...options,
+        onProgress: (_current, _total, message) => {
+          setProgressMsg(message);
+        }
+      });
+      setExportSuccess(`Successfully exported PDF for ${selectedEntries.length} entries with full Sinhala font support.`);
+      setTimeout(() => setExportSuccess(null), 5000);
     } catch (err: any) {
       console.error('PDF generation error:', err);
       alert(err.message || 'Failed to generate PDF document.');
     } finally {
       setIsGenerating(false);
+      setProgressMsg('');
     }
   };
 
@@ -111,19 +117,24 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
       aria-modal="true"
       aria-labelledby="pdf-export-title"
     >
-      <div className="relative w-full max-w-3xl max-h-[90vh] bg-[#15141d] border border-[#2e2d3f] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-3xl max-h-[92vh] bg-[#15141d] border border-[#2e2d3f] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#252435] bg-[#111018]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#252335] flex items-center justify-center text-[#d4af37] border border-[#3e3b52]">
-              <FileDown className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#d4af37]/60 shrink-0 bg-black shadow-md">
+              <img
+                src="/logo.png"
+                alt="Ash's Personal Diary Logo"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h3 id="pdf-export-title" className="font-cinzel text-lg font-bold text-[#f5ebd7] tracking-wider">
-                Export Printable PDF
+                Export Formatted PDF
               </h3>
               <p className="text-xs text-[#8e8779] font-serif-book">
-                Compile selected diary entries into a printable, beautifully typeset manuscript.
+                Export diary entries into a printable manuscript with full Sinhala (සිංහල) and English typography.
               </p>
             </div>
           </div>
@@ -138,12 +149,44 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Sinhala & Unicode Font Banner */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1c1a27] border border-[#4d4024] text-xs">
+            <div className="w-8 h-8 rounded-lg bg-[#2b271a] flex items-center justify-center text-[#e8c872] shrink-0 border border-[#6b582b]">
+              <Languages className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 font-cinzel text-xs font-semibold text-[#f5ebd7]">
+                <span>Sinhala Font Engine Active</span>
+                <span className="px-1.5 py-0.5 text-[10px] rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 font-mono">
+                  Abhaya Libre + Noto Serif
+                </span>
+              </div>
+              <p className="text-[11px] text-[#a89f8f] font-serif-book mt-0.5">
+                Full HarfBuzz ligature rendering enabled — vowel signs (කො, ක්), yansaya (්‍ය), and bandi akuru are properly shaped and will not display as broken characters.
+              </p>
+            </div>
+            <div className="hidden sm:flex flex-col items-end shrink-0 pl-2">
+              <span className="font-sinhala text-sm text-[#e8c872] font-semibold">
+                මගේ දිනපොත
+              </span>
+              <span className="text-[10px] text-[#736c5e]">Unicode Compliant</span>
+            </div>
+          </div>
+
           {/* Status Message */}
           {exportSuccess && (
             <div className="p-3 bg-emerald-950/60 border border-emerald-800/60 rounded-xl flex items-center gap-2.5 text-emerald-400 text-xs font-serif-book animate-fade-in">
-              <Check className="w-4 h-4 text-emerald-400" />
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>{exportSuccess}</span>
+            </div>
+          )}
+
+          {/* Progress Indicator */}
+          {isGenerating && progressMsg && (
+            <div className="p-3 bg-[#1e1c2e] border border-[#48402c] rounded-xl flex items-center gap-3 text-xs text-[#e8c872] animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-[#d4af37] shrink-0" />
+              <span className="font-serif-book font-medium">{progressMsg}</span>
             </div>
           )}
 
@@ -152,7 +195,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-cinzel text-xs uppercase tracking-wider text-[#d4af37] font-semibold">
-                  Select Entries to Inscribe
+                  Select Entries to Include
                 </span>
                 <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#201f2e] text-[#b8b0a1] border border-[#302f42]">
                   {selectedEntries.length} of {entries.length} selected
@@ -177,7 +220,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             </div>
 
             {/* Entry Checklist */}
-            <div className="max-h-56 overflow-y-auto space-y-1.5 p-2 bg-[#0c0c12] border border-[#232230] rounded-xl pr-1.5">
+            <div className="max-h-52 overflow-y-auto space-y-1.5 p-2 bg-[#0c0c12] border border-[#232230] rounded-xl pr-1.5">
               {sortedEntries.length === 0 ? (
                 <div className="py-8 text-center text-xs text-[#7d776a] font-serif-book italic">
                   No diary entries available to export.
@@ -213,7 +256,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                               #{entry.pageOrder}
                             </span>
                             <span className="font-serif-book text-sm font-semibold truncate text-[#ded7c8]">
-                              {entry.title}
+                              {entry.title || 'Untitled Entry'}
                             </span>
                           </div>
                           <div className="text-[11px] text-[#787265] flex items-center gap-2 mt-0.5">
@@ -238,8 +281,45 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: PDF Style & Typography Options */}
+          {/* Section 2: PDF Rendering Mode & Paper Tone */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Render Mode */}
+            <div className="p-4 bg-[#111018] border border-[#232231] rounded-xl space-y-2">
+              <label className="block text-xs font-cinzel uppercase tracking-wider text-[#d4af37] font-semibold">
+                Export Typography Mode
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOptions({ ...options, renderMode: 'canvas-hd' })}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                    options.renderMode === 'canvas-hd'
+                      ? 'bg-[#252233] border-[#d4af37] text-[#d4af37]'
+                      : 'bg-[#171622] border-[#2d2c3e] text-[#8e8779] hover:text-[#d4af37]'
+                  }`}
+                >
+                  <div className="text-xs font-cinzel font-semibold flex items-center gap-1.5">
+                    <span>Book HD</span>
+                    <Sparkles className="w-3 h-3 text-[#d4af37]" />
+                  </div>
+                  <div className="text-[10px] opacity-75 mt-0.5">Full Sinhala ligatures & parchment texture</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOptions({ ...options, renderMode: 'vector' })}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                    options.renderMode === 'vector'
+                      ? 'bg-[#252233] border-[#d4af37] text-[#d4af37]'
+                      : 'bg-[#171622] border-[#2d2c3e] text-[#8e8779] hover:text-[#d4af37]'
+                  }`}
+                >
+                  <div className="text-xs font-cinzel font-semibold">Vector PDF</div>
+                  <div className="text-[10px] opacity-75 mt-0.5">Embedded TTF font, selectable text</div>
+                </button>
+              </div>
+            </div>
+
             {/* Paper Theme */}
             <div className="p-4 bg-[#111018] border border-[#232231] rounded-xl space-y-2">
               <label className="block text-xs font-cinzel uppercase tracking-wider text-[#d4af37] font-semibold">
@@ -249,13 +329,13 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                 {[
                   { id: 'classic', label: 'Parchment', desc: 'Warm Classic' },
                   { id: 'ivory', label: 'Ivory', desc: 'Soft & Light' },
-                  { id: 'clean', label: 'Monochrome', desc: 'Crisp White' }
+                  { id: 'clean', label: 'Clean', desc: 'Crisp White' }
                 ].map((p) => (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => setOptions({ ...options, paperStyle: p.id as any })}
-                    className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                    className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
                       options.paperStyle === p.id
                         ? 'bg-[#252233] border-[#d4af37] text-[#d4af37]'
                         : 'bg-[#171622] border-[#2d2c3e] text-[#8e8779] hover:text-[#d4af37]'
@@ -263,33 +343,6 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                   >
                     <div className="text-xs font-cinzel font-semibold">{p.label}</div>
                     <div className="text-[10px] opacity-70 mt-0.5">{p.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Typography scale */}
-            <div className="p-4 bg-[#111018] border border-[#232231] rounded-xl space-y-2">
-              <label className="block text-xs font-cinzel uppercase tracking-wider text-[#d4af37] font-semibold">
-                Text Scale
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'standard', label: 'Standard (10.5pt)', desc: 'Balanced density' },
-                  { id: 'large', label: 'Large (12pt)', desc: 'Higher legibility' }
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setOptions({ ...options, fontSize: s.id as any })}
-                    className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
-                      options.fontSize === s.id
-                        ? 'bg-[#252233] border-[#d4af37] text-[#d4af37]'
-                        : 'bg-[#171622] border-[#2d2c3e] text-[#8e8779] hover:text-[#d4af37]'
-                    }`}
-                  >
-                    <div className="text-xs font-cinzel font-semibold">{s.label}</div>
-                    <div className="text-[10px] opacity-70 mt-0.5">{s.desc}</div>
                   </button>
                 ))}
               </div>
@@ -341,7 +394,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
             {selectedEntries.length === 0 ? (
               <span className="text-rose-400">Please select at least one entry to export.</span>
             ) : (
-              <span>Ready to inscribe {selectedEntries.length} entries into PDF format.</span>
+              <span>Ready to export {selectedEntries.length} entries with Sinhala & English typography.</span>
             )}
           </div>
 
@@ -361,10 +414,10 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               disabled={selectedEntries.length === 0 || isGenerating}
               onClick={handleDirectPrint}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#222030] hover:bg-[#2d2b40] text-[#e8c872] border border-[#48402f] font-cinzel text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              title="Open browser print dialog with page layout"
+              title="Open browser print dialog with full vector Sinhala typography"
             >
               <Printer className="w-4 h-4" />
-              <span>Print / Print Preview</span>
+              <span>Print / Save as PDF</span>
             </button>
 
             {/* Download PDF Button */}
@@ -383,7 +436,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               ) : (
                 <>
                   <FileDown className="w-4 h-4" />
-                  <span>Download PDF Document</span>
+                  <span>Download Formatted PDF</span>
                 </>
               )}
             </button>

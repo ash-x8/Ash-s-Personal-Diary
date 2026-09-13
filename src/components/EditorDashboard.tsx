@@ -264,8 +264,13 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
       <header className="sticky top-0 z-40 bg-[#12121b]/95 backdrop-blur-md border-b border-[#242332] px-4 sm:px-8 py-3.5 flex items-center justify-between">
         {/* Branding */}
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#8a7238] to-[#d4af37] flex items-center justify-center text-[#19140a] font-bold shadow-md">
-            <BookOpen className="w-4 h-4" />
+          <div className="w-9 h-9 rounded-full overflow-hidden border border-[#d4af37]/60 shadow-md bg-black shrink-0">
+            <img
+              src="/logo.png"
+              alt="Ash's Personal Diary Logo"
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <h1 className="font-cinzel text-sm sm:text-base font-bold tracking-[0.2em] text-[#f5ebd7] uppercase">
@@ -884,6 +889,27 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
           />
         )}
       </main>
+
+      {/* Site Footer */}
+      <footer className="w-full py-4 px-6 border-t border-[#242332] bg-[#0f0e17] text-center text-xs text-[#8f887b] font-cinzel flex flex-col sm:flex-row items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 text-[#756e60]">
+          <div className="w-5 h-5 rounded-full overflow-hidden border border-[#d4af37]/40 shrink-0 bg-black">
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          </div>
+          <span>Ash's Personal Diary • Private Workshop</span>
+        </div>
+        <div className="text-xs text-[#8e8574]">
+          Created And Designed By{' '}
+          <a
+            href="https://ash-wickramasinghe.site"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#d4af37] hover:text-[#f3e1a0] underline underline-offset-4 transition-colors font-semibold"
+          >
+            Ash Wickramasinghe
+          </a>
+        </div>
+      </footer>
 
       {/* Global Media Modal */}
       {showMediaModal && (

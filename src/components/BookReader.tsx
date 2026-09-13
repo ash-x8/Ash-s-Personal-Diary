@@ -570,10 +570,17 @@ export const BookReader: React.FC<BookReaderProps> = ({
           <button
             type="button"
             onClick={jumpToCover}
-            className="flex items-center gap-2 text-[#d4af37] hover:text-[#f5ebd7] font-cinzel tracking-[0.18em] uppercase font-semibold transition-colors cursor-pointer"
+            className="flex items-center gap-2.5 text-[#d4af37] hover:text-[#f5ebd7] font-cinzel tracking-[0.18em] uppercase font-semibold transition-colors cursor-pointer"
             title="Return to Cover Page"
           >
-            <BookOpen className="w-4 h-4" />
+            <div className="w-6 h-6 rounded-full overflow-hidden border border-[#d4af37]/60 shrink-0 bg-black shadow-sm">
+              <img
+                src="/logo.png"
+                alt="Logo"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            </div>
             <span className="hidden sm:inline">{settings.title || "Ash's Diary"}</span>
           </button>
 
@@ -876,24 +883,38 @@ export const BookReader: React.FC<BookReaderProps> = ({
         </div>
       </main>
 
-      {/* Bottom Status & Page Navigation Indicators */}
-      <footer className="relative z-30 w-full max-w-6xl flex items-center justify-between py-2 px-4 text-xs text-[#8f887b] font-cinzel">
-        <div className="flex items-center gap-2">
-          <span>← Previous</span>
-          <span className="text-[#555047]">•</span>
-          <span>Next →</span>
+      {/* Bottom Status & Page Navigation Indicators & Site Footer */}
+      <footer className="relative z-30 w-full max-w-6xl flex flex-col gap-1.5 py-2 px-4 text-xs text-[#8f887b] font-cinzel">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-2">
+            <span>← Previous</span>
+            <span className="text-[#555047]">•</span>
+            <span>Next →</span>
+          </div>
+
+          <div className="tracking-[0.2em] uppercase font-medium text-[#c4b9a7]">
+            {isMobileView ? (
+              `Page ${mobilePageIndex + 1} of ${totalMobilePages}`
+            ) : (
+              `Spread ${currentSpread + 1} of ${totalSpreads} (Pages ${currentSpread * 2 + 1}–${currentSpread * 2 + 2})`
+            )}
+          </div>
+
+          <div className="text-[11px] font-sans opacity-75 hidden sm:block">
+            Use Arrow Keys or Swipe to turn pages
+          </div>
         </div>
 
-        <div className="tracking-[0.2em] uppercase font-medium text-[#c4b9a7]">
-          {isMobileView ? (
-            `Page ${mobilePageIndex + 1} of ${totalMobilePages}`
-          ) : (
-            `Spread ${currentSpread + 1} of ${totalSpreads} (Pages ${currentSpread * 2 + 1}–${currentSpread * 2 + 2})`
-          )}
-        </div>
-
-        <div className="text-[11px] font-sans opacity-75 hidden sm:block">
-          Use Arrow Keys or Swipe to turn pages
+        <div className="flex items-center justify-center pt-1.5 border-t border-[#26242f]/80 text-[11px] tracking-wider text-[#7a7469]">
+          <span>Created And Designed By&nbsp;</span>
+          <a
+            href="https://ash-wickramasinghe.site"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#d4af37] hover:text-[#f3e1a0] underline underline-offset-2 transition-colors font-semibold"
+          >
+            Ash Wickramasinghe
+          </a>
         </div>
       </footer>
 

@@ -24,6 +24,7 @@ import { MediaLibraryModal } from './MediaLibraryModal';
 import { SinhalaUnicodeEditor, SinhalaUnicodeEditorRef } from './SinhalaUnicodeEditor';
 import { SinhalaTextInput } from './SinhalaTextInput';
 import { subscribeToActivePage } from '../services/firebase';
+import { compressHtmlImages } from '../utils/imageCompressor';
 
 interface EntryEditorProps {
   initialEntry?: DiaryEntry | null;
@@ -225,11 +226,18 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         .map((t) => t.trim().replace(/^#/, ''))
         .filter(Boolean);
 
+      let processedHTML = currentHTML;
+      try {
+        processedHTML = await compressHtmlImages(currentHTML);
+      } catch (err) {
+        console.warn('Image pre-compression warning:', err);
+      }
+
       const saved = await onSave(
         {
           title: title.trim(),
           date,
-          content: currentHTML,
+          content: processedHTML,
           mood: mood.trim() || undefined,
           location: location.trim() || undefined,
           tags: parsedTags,

@@ -50,8 +50,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
-// Static uploads
+// Static uploads & public assets
 app.use('/uploads', express.static(UPLOAD_DIR));
+const PUBLIC_DIR = path.resolve(__dirname, 'public');
+if (fs.existsSync(PUBLIC_DIR)) {
+  app.use(express.static(PUBLIC_DIR));
+}
 
 // Health check
 app.get('/api/health', (_req, res) => {

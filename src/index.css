@@ -2,10 +2,10 @@
 
 @layer base {
   :root {
-    --font-serif: 'Cormorant Garamond', Georgia, serif;
-    --font-display: 'Cinzel', serif;
-    --font-handwriting: 'Caveat', cursive;
-    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-serif: 'Cormorant Garamond', 'Abhaya Libre', 'Noto Serif Sinhala', Georgia, serif;
+    --font-display: 'Cinzel', 'Abhaya Libre', 'Noto Serif Sinhala', serif;
+    --font-handwriting: 'Caveat', 'Noto Sans Sinhala', cursive;
+    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Sinhala', system-ui, -apple-system, sans-serif;
   }
 
   body {
@@ -20,15 +20,19 @@
 }
 
 .font-serif-book {
-  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-family: 'Cormorant Garamond', 'Abhaya Libre', 'Noto Serif Sinhala', 'Iskoola Pota', Georgia, serif;
 }
 
 .font-cinzel {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', 'Abhaya Libre', 'Noto Serif Sinhala', serif;
 }
 
 .font-handwriting {
-  font-family: 'Caveat', cursive;
+  font-family: 'Caveat', 'Noto Sans Sinhala', cursive;
+}
+
+.font-sinhala {
+  font-family: 'Abhaya Libre', 'Noto Serif Sinhala', 'Noto Sans Sinhala', 'Iskoola Pota', serif;
 }
 
 /* 3D Book perspective */

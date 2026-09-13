@@ -16,6 +16,7 @@ import {
   Unsubscribe 
 } from "firebase/firestore";
 import { DiaryEntry, DiarySettings, MediaItem } from '../types';
+import { sanitizeEntryForFirestore } from '../utils/imageCompressor';
 
 import firebaseAppletConfig from '../../firebase-applet-config.json';
 
@@ -196,25 +197,26 @@ export async function handleAddPage(customFields?: Partial<DiaryEntry>): Promise
     updatedAt: serverTimestamp()
   };
 
-  await setDoc(newDocRef, initialData);
+  const sanitizedData = await sanitizeEntryForFirestore(initialData);
+  await setDoc(newDocRef, cleanFirestoreData(sanitizedData));
 
   return {
     id: newDocRef.id,
-    title: initialData.title,
+    title: sanitizedData.title,
     slug: newDocRef.id,
-    content: initialData.content,
-    date: initialData.date,
-    mood: initialData.mood,
-    location: initialData.location,
-    tags: initialData.tags,
-    coverImage: initialData.coverImage,
-    gallery: initialData.gallery,
-    status: initialData.status,
-    pageOrder: initialData.pageOrder,
-    customPageNumber: initialData.customPageNumber,
-    isSecret: initialData.isSecret,
-    secretPasscode: initialData.secretPasscode,
-    secretHint: initialData.secretHint,
+    content: sanitizedData.content,
+    date: sanitizedData.date,
+    mood: sanitizedData.mood,
+    location: sanitizedData.location,
+    tags: sanitizedData.tags,
+    coverImage: sanitizedData.coverImage,
+    gallery: sanitizedData.gallery,
+    status: sanitizedData.status,
+    pageOrder: sanitizedData.pageOrder,
+    customPageNumber: sanitizedData.customPageNumber,
+    isSecret: sanitizedData.isSecret,
+    secretPasscode: sanitizedData.secretPasscode,
+    secretHint: sanitizedData.secretHint,
     createdAt: now,
     updatedAt: now
   };
@@ -241,13 +243,14 @@ export async function saveEntryToFirestore(entryData: Partial<DiaryEntry>, id?: 
     dataToSave.publishedAt = now;
   }
 
-  await setDoc(docRef, cleanFirestoreData(dataToSave), { merge: true });
+  const sanitizedData = await sanitizeEntryForFirestore(dataToSave);
+  await setDoc(docRef, cleanFirestoreData(sanitizedData), { merge: true });
 
   return {
     id: entryId,
-    title: dataToSave.title || 'Untitled Page',
-    slug: dataToSave.slug || entryId,
-    content: dataToSave.content || '',
+    title: sanitizedData.title || 'Untitled Page',
+    slug: sanitizedData.slug || entryId,
+    content: sanitizedData.content || '',
     date: dataToSave.date || now.split('T')[0],
     mood: dataToSave.mood,
     location: dataToSave.location,
@@ -447,7 +450,8 @@ export async function fetchMediaFromFirestore(): Promise<MediaItem[]> {
  */
 export async function addFirestoreMedia(item: MediaItem): Promise<void> {
   const docRef = doc(db, 'media', item.id);
-  await setDoc(docRef, cleanFirestoreData(item), { merge: true });
+  const sanitizedItem = await sanitizeEntryForFirestore(item);
+  await setDoc(docRef, cleanFirestoreData(sanitizedItem), { merge: true });
 }
 
 /**

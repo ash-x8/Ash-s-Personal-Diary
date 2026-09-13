@@ -96,7 +96,7 @@ export const BookPageContainer: React.FC<BookPageProps> = ({
           <>
             <span className="tracking-widest font-semibold">{pageNumber}</span>
             <span className="text-[9px] font-cinzel tracking-widest uppercase opacity-70">
-              Ash-x8
+              Ash Wickramasinghe
             </span>
           </>
         ) : (
@@ -122,11 +122,16 @@ interface BookTitlePageProps {
   totalEntries: number;
 }
 
-const BookTitlePageComponent: React.FC<BookTitlePageProps> = ({ settings, authorName = 'ASH-X8', totalEntries }) => {
+const BookTitlePageComponent: React.FC<BookTitlePageProps> = ({ settings, authorName = 'Ash Wickramasinghe', totalEntries }) => {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center p-4">
-      <div className="w-12 h-12 rounded-full border border-current opacity-30 flex items-center justify-center mb-6">
-        <Sparkles className="w-5 h-5 opacity-70" />
+      <div className="w-16 h-16 rounded-full border border-[#d4af37]/60 overflow-hidden shadow-lg flex items-center justify-center mb-5 bg-black ring-2 ring-[#d4af37]/20">
+        <img
+          src="/logo.png"
+          alt="Ash's Personal Diary Logo"
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+        />
       </div>
 
       <span className="text-xs font-cinzel tracking-[0.3em] uppercase opacity-60 mb-2">
