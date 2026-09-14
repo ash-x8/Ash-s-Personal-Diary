@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { api } from './services/api';
 import { soundService } from './services/sound';
@@ -6,14 +6,20 @@ import {
   db,
   subscribeToPublishedEntries,
   subscribeToAllEntries,
+  subscribeToDiaryChapters,
   subscribeToSettings,
   subscribeToMedia,
   saveEntryToFirestore,
+  saveChapterToFirestore,
   deleteEntryFromFirestore,
+  deleteChapterFromFirestore,
   reorderEntriesInFirestore,
+  reorderChaptersInFirestore,
   saveSettingsToFirestore,
   fetchPublishedEntriesFromFirestore,
   fetchAllEntriesFromFirestore,
+  fetchPublishedChaptersFromFirestore,
+  fetchAllChaptersFromFirestore,
   handleAddPage
 } from './services/firebase';
 import { ClosedBookAccess } from './components/ClosedBookAccess';
@@ -23,11 +29,12 @@ import {
   AuthSession,
   DashboardStats,
   DiaryEntry,
+  DiaryChapter,
   DiarySettings,
   MediaItem,
   UserRole
 } from './types';
-import { BookOpen } from 'lucide-react';
+import { paginateAllChapters } from './utils/pagination';
 
 export function App() {
   const [session, setSession] = useState<AuthSession>({ authenticated: false });
@@ -35,6 +42,7 @@ export function App() {
   const [activeView, setActiveView] = useState<'closed-book' | 'reader' | 'editor' | 'preview'>('closed-book');
   
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const [chapters, setChapters] = useState<DiaryChapter[]>([]);
   const [settings, setSettings] = useState<DiarySettings>({
     title: "Ash's Personal Diary",
     subtitle: "Private Journal",
@@ -51,6 +59,7 @@ export function App() {
     autoPageTurn: false,
     readerAccessEnabled: true,
     editorAccessEnabled: true,
+    wordsPerPage: 100,
     lastUpdated: new Date().toISOString()
   });
 
@@ -65,17 +74,44 @@ export function App() {
 
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
-  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+
+  // Dynamic pagination engine: Convert continuous chapters to paginated book reader leaves
+  const effectiveReaderEntries: DiaryEntry[] = useMemo(() => {
+    if (chapters.length > 0) {
+      const { pages } = paginateAllChapters(chapters, settings.wordsPerPage || 100);
+      return pages.map((page, idx) => ({
+        id: page.id,
+        title: page.pageIndex === 0 ? page.chapterTitle : `${page.chapterTitle} (Part ${page.pageIndex + 1})`,
+        slug: page.id,
+        content: page.content,
+        date: page.date,
+        mood: page.mood,
+        location: page.location,
+        tags: page.tags || [],
+        coverImage: page.coverImage,
+        gallery: page.gallery || [],
+        status: page.status,
+        pageOrder: idx + 1,
+        customPageNumber: idx + 1,
+        isSecret: page.isSecret,
+        securityKey: page.securityKey,
+        securityHint: page.securityHint,
+        secretPasscode: page.securityKey,
+        createdAt: page.date,
+        updatedAt: page.date,
+        chapterId: page.chapterId
+      }));
+    }
+    return entries;
+  }, [chapters, entries, settings.wordsPerPage]);
 
   // Initialize session and book data
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Check active session
         const currentSession = await api.getSession();
         setSession(currentSession);
 
-        // Fetch settings
         const loadedSettings = await api.getSettings();
         setSettings(loadedSettings);
         soundService.setEnabled(loadedSettings.soundEnabled !== false);
@@ -112,7 +148,18 @@ export function App() {
       setIsLiveConnected(true);
     });
 
-    // 2. Live entries subscription (role-aware: readers see published, editor sees all)
+    // 2. Live chapters subscription
+    const unsubChapters = subscribeToDiaryChapters(
+      (liveChapters) => {
+        if (liveChapters && liveChapters.length > 0) {
+          setChapters(liveChapters);
+          setIsLiveConnected(true);
+        }
+      },
+      session.role === 'READER'
+    );
+
+    // 3. Live entries subscription (fallback / companion)
     let unsubEntries: () => void;
     if (session.role === 'EDITOR') {
       unsubEntries = subscribeToAllEntries((liveEntries) => {
@@ -134,7 +181,7 @@ export function App() {
       });
     }
 
-    // 3. Live media subscription (for Editor)
+    // 4. Live media subscription (for Editor)
     let unsubMedia: (() => void) | undefined;
     if (session.role === 'EDITOR') {
       unsubMedia = subscribeToMedia((liveMedia) => {
@@ -142,7 +189,7 @@ export function App() {
       });
     }
 
-    // 4. Background visibility sync check for offline/reconnect resiliency
+    // 5. Background visibility sync check for offline/reconnect resiliency
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && session.role) {
         loadDataForRole(session.role);
@@ -154,6 +201,7 @@ export function App() {
 
     return () => {
       unsubSettings();
+      unsubChapters();
       if (unsubEntries) unsubEntries();
       if (unsubMedia) unsubMedia();
       window.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -164,11 +212,20 @@ export function App() {
   const loadDataForRole = async (role: UserRole) => {
     try {
       if (role === 'READER') {
-        const firestoreEntries = await fetchPublishedEntriesFromFirestore();
-        setEntries(firestoreEntries);
+        const [firestoreChapters, firestoreEntries] = await Promise.all([
+          fetchPublishedChaptersFromFirestore().catch(() => []),
+          fetchPublishedEntriesFromFirestore().catch(() => [])
+        ]);
+        if (firestoreChapters.length > 0) setChapters(firestoreChapters);
+        if (firestoreEntries.length > 0) setEntries(firestoreEntries);
       } else {
-        const firestoreEntries = await fetchAllEntriesFromFirestore();
-        setEntries(firestoreEntries);
+        const [firestoreChapters, firestoreEntries] = await Promise.all([
+          fetchAllChaptersFromFirestore().catch(() => []),
+          fetchAllEntriesFromFirestore().catch(() => [])
+        ]);
+        if (firestoreChapters.length > 0) setChapters(firestoreChapters);
+        if (firestoreEntries.length > 0) setEntries(firestoreEntries);
+
         setStats((prev) => ({
           ...prev,
           totalEntries: firestoreEntries.length,
@@ -217,19 +274,37 @@ export function App() {
   const handleLockDiary = async () => {
     try {
       await api.lock();
-    } catch {
-      // Continue cleanup
-    }
+    } catch {}
     setSession({ authenticated: false });
     setActiveView('closed-book');
   };
 
-  // CRUD actions for Editor - saves directly to Cloud Firestore so ALL readers instantly receive updates
-  const handleSaveEntry = async (entryData: Partial<DiaryEntry>, _publish: boolean, existingId?: string): Promise<DiaryEntry> => {
-    // 1. Direct write to Cloud Firestore - triggers real-time onSnapshot on all readers and devices!
+  // CRUD actions for Editor - saves directly to Cloud Firestore
+  const handleSaveEntry = async (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string): Promise<DiaryEntry> => {
+    // 1. Direct write to Cloud Firestore entry collection
     const saved = await saveEntryToFirestore(entryData, existingId);
 
-    // 2. Sync to API / local cache in background
+    // 2. Also mirror to diary_chapters for continuous pagination
+    await saveChapterToFirestore(
+      {
+        chapterTitle: entryData.title || 'Untitled Chapter',
+        rawContent: entryData.content || '',
+        date: entryData.date,
+        status: entryData.status || (publish ? 'published' : 'draft'),
+        order: entryData.pageOrder || 1,
+        mood: entryData.mood,
+        location: entryData.location,
+        tags: entryData.tags,
+        coverImage: entryData.coverImage,
+        gallery: entryData.gallery,
+        isSecret: entryData.isSecret,
+        securityKey: entryData.securityKey,
+        securityHint: entryData.securityHint
+      },
+      existingId || saved.id
+    ).catch(() => {});
+
+    // 3. Sync to API / local cache in background
     try {
       if (existingId) {
         await api.updateEntry(existingId, entryData);
@@ -240,7 +315,7 @@ export function App() {
       console.warn('API sync deferred:', err);
     }
 
-    // 3. Update local state immediately for instant feedback
+    // 4. Update local state immediately for instant feedback
     setEntries((prev) => {
       const idx = prev.findIndex((e) => e.id === saved.id);
       if (idx !== -1) {
@@ -255,34 +330,33 @@ export function App() {
   };
 
   const handleDeleteEntry = async (id: string) => {
-    // 1. Delete directly from Cloud Firestore document reference
+    // Delete from Firestore diary_pages and diary_chapters
     try {
       await deleteDoc(doc(db, "diary_pages", id));
       await deleteDoc(doc(db, "entries", id)).catch(() => {});
+      await deleteDoc(doc(db, "diary_chapters", id)).catch(() => {});
     } catch (error) {
       console.error("Error deleting entry from Firestore:", error);
     }
     await deleteEntryFromFirestore(id).catch(() => {});
+    await deleteChapterFromFirestore(id).catch(() => {});
 
-    // 2. Sync to API
     try {
       await api.deleteEntry(id);
     } catch {}
 
-    // 3. Update local state immediately
     setEntries((prev) => prev.filter((e) => e.id !== id));
+    setChapters((prev) => prev.filter((c) => c.id !== id));
   };
 
   const handleReorderEntries = async (order: { id: string; pageOrder: number }[]) => {
-    // 1. Reorder directly in Cloud Firestore
     await reorderEntriesInFirestore(order);
+    await reorderChaptersInFirestore(order.map(o => ({ id: o.id, order: o.pageOrder }))).catch(() => {});
 
-    // 2. Sync to API
     try {
       await api.reorderEntries(order);
     } catch {}
 
-    // 3. Update local state immediately
     setEntries((prev) => {
       const orderMap = new Map(order.map((o) => [o.id, o.pageOrder]));
       return [...prev]
@@ -292,10 +366,8 @@ export function App() {
   };
 
   const handleSaveSettings = async (updates: Partial<DiarySettings>) => {
-    // 1. Save directly to Cloud Firestore
     await saveSettingsToFirestore(updates);
 
-    // 2. Sync to API
     try {
       await api.updateSettings(updates);
     } catch {}
@@ -317,7 +389,7 @@ export function App() {
     setMedia(media.filter(m => m.id !== id));
   };
 
-  // Loading Screen (Requirement 29)
+  // Loading Screen
   if (isInitializing) {
     return (
       <div 
@@ -336,7 +408,7 @@ export function App() {
           Opening your diary…
         </h2>
         <p className="font-serif-book italic text-xs text-[#8c8577] mt-1.5">
-          Retrieving private pages
+          Retrieving private chapters & pages
         </p>
       </div>
     );
@@ -358,7 +430,7 @@ export function App() {
       {/* View 2: Digital Book Reader (Reader Mode) */}
       {activeView === 'reader' && (
         <BookReader
-          entries={entries}
+          entries={effectiveReaderEntries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}
@@ -387,7 +459,7 @@ export function App() {
       {/* View 4: Editor Live Book Preview (Testing Mode) */}
       {activeView === 'preview' && (
         <BookReader
-          entries={entries}
+          entries={effectiveReaderEntries}
           settings={settings}
           onLockDiary={handleLockDiary}
           onUpdateSettings={handleSaveSettings}

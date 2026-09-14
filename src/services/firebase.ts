@@ -15,7 +15,7 @@ import {
   getDoc,
   Unsubscribe 
 } from "firebase/firestore";
-import { DiaryEntry, DiarySettings, MediaItem } from '../types';
+import { DiaryChapter, DiaryEntry, DiarySettings, MediaItem } from '../types';
 import { sanitizeEntryForFirestore } from '../utils/imageCompressor';
 
 import firebaseAppletConfig from '../../firebase-applet-config.json';
@@ -61,6 +61,253 @@ function cleanFirestoreData<T extends Record<string, any>>(data: T): Record<stri
     }
   }
   return result;
+}
+
+/**
+ * Convert Firestore document data to strongly-typed DiaryChapter
+ */
+export function docToChapter(id: string, data: Record<string, any>): DiaryChapter {
+  const createdAtStr = data.createdAt?.toDate 
+    ? data.createdAt.toDate().toISOString() 
+    : (typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString());
+
+  const updatedAtStr = data.updatedAt?.toDate 
+    ? data.updatedAt.toDate().toISOString() 
+    : (typeof data.updatedAt === 'string' ? data.updatedAt : createdAtStr);
+
+  return {
+    id,
+    chapterTitle: data.chapterTitle || data.title || 'Untitled Chapter',
+    rawContent: data.rawContent !== undefined ? data.rawContent : (data.content || ''),
+    date: data.date || createdAtStr.split('T')[0],
+    mood: data.mood,
+    location: data.location,
+    tags: Array.isArray(data.tags) ? data.tags : [],
+    coverImage: data.coverImage,
+    gallery: Array.isArray(data.gallery) ? data.gallery : [],
+    status: data.status === 'draft' ? 'draft' : 'published',
+    order: typeof data.order === 'number' ? data.order : (typeof data.pageOrder === 'number' ? data.pageOrder : 1),
+    isSecret: Boolean(data.isSecret),
+    securityKey: data.securityKey || data.secretPasscode || undefined,
+    securityHint: data.securityHint || data.secretHint || undefined,
+    secretPasscode: data.securityKey || data.secretPasscode || undefined,
+    createdAt: createdAtStr,
+    updatedAt: updatedAtStr
+  };
+}
+
+/**
+ * Real-time listener for diary_chapters collection
+ */
+export function subscribeToDiaryChapters(
+  onUpdate: (chapters: DiaryChapter[]) => void,
+  onlyPublished: boolean = false,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const chaptersColl = collection(db, "diary_chapters");
+
+  return onSnapshot(
+    chaptersColl,
+    (snapshot) => {
+      const items: DiaryChapter[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (!onlyPublished || data.status === 'published' || !data.status) {
+          items.push(docToChapter(docSnap.id, data));
+        }
+      });
+
+      // Sort by order ascending, then date ascending
+      items.sort((a, b) => {
+        if ((a.order || 0) !== (b.order || 0)) {
+          return (a.order || 0) - (b.order || 0);
+        }
+        return new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime();
+      });
+
+      onUpdate(items);
+    },
+    (err) => {
+      console.warn("Firestore diary_chapters snapshot error:", err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Real-time listener for a single active chapter (Multi-device live sync)
+ */
+export function subscribeToActiveChapter(
+  activeChapterId: string,
+  onUpdate: (chapter: DiaryChapter | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const chapterRef = doc(db, "diary_chapters", activeChapterId);
+
+  return onSnapshot(
+    chapterRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        onUpdate(docToChapter(docSnap.id, docSnap.data()));
+      } else {
+        onUpdate(null);
+      }
+    },
+    (err) => {
+      console.warn(`Firestore active chapter [${activeChapterId}] error:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Add a new chapter immediately to Firestore collection "diary_chapters"
+ */
+export async function handleAddChapter(customFields?: Partial<DiaryChapter>): Promise<DiaryChapter> {
+  const newDocRef = doc(collection(db, "diary_chapters"));
+  const now = new Date().toISOString();
+
+  let nextOrder = 1;
+  try {
+    const snap = await getDocs(collection(db, "diary_chapters"));
+    nextOrder = snap.size + 1;
+  } catch {}
+
+  const initialData: Record<string, any> = {
+    chapterTitle: customFields?.chapterTitle || "The Beginning",
+    rawContent: customFields?.rawContent || "<p></p>",
+    date: customFields?.date || now.split('T')[0],
+    status: customFields?.status || "published",
+    order: customFields?.order || nextOrder,
+    tags: customFields?.tags || [],
+    gallery: customFields?.gallery || [],
+    coverImage: customFields?.coverImage || "",
+    mood: customFields?.mood || "Reflective",
+    location: customFields?.location || "",
+    isSecret: Boolean(customFields?.isSecret),
+    securityKey: customFields?.securityKey || "",
+    securityHint: customFields?.securityHint || "",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+
+  const sanitizedData = await sanitizeEntryForFirestore(initialData);
+  await setDoc(newDocRef, cleanFirestoreData(sanitizedData));
+
+  return {
+    id: newDocRef.id,
+    chapterTitle: sanitizedData.chapterTitle,
+    rawContent: sanitizedData.rawContent,
+    date: sanitizedData.date,
+    mood: sanitizedData.mood,
+    location: sanitizedData.location,
+    tags: sanitizedData.tags,
+    coverImage: sanitizedData.coverImage,
+    gallery: sanitizedData.gallery,
+    status: sanitizedData.status,
+    order: sanitizedData.order,
+    isSecret: sanitizedData.isSecret,
+    securityKey: sanitizedData.securityKey,
+    securityHint: sanitizedData.securityHint,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+/**
+ * Direct write / update of chapter to Firestore "diary_chapters"
+ * Saves the full continuous chapter text as rawContent.
+ */
+export async function saveChapterToFirestore(
+  chapterData: Partial<DiaryChapter>,
+  id?: string
+): Promise<DiaryChapter> {
+  const chapterId = id || `chapter-${Date.now()}`;
+  const docRef = doc(db, "diary_chapters", chapterId);
+  const now = new Date().toISOString();
+
+  const dataToSave: Record<string, any> = {
+    ...chapterData,
+    chapterTitle: chapterData.chapterTitle || 'Untitled Chapter',
+    rawContent: chapterData.rawContent !== undefined ? chapterData.rawContent : '',
+    updatedAt: serverTimestamp()
+  };
+
+  if (!id) {
+    dataToSave.createdAt = serverTimestamp();
+  }
+
+  const sanitizedData = await sanitizeEntryForFirestore(dataToSave);
+  await setDoc(docRef, cleanFirestoreData(sanitizedData), { merge: true });
+
+  return docToChapter(chapterId, {
+    ...sanitizedData,
+    createdAt: sanitizedData.createdAt || now,
+    updatedAt: now
+  });
+}
+
+/**
+ * Direct delete from Firestore "diary_chapters"
+ */
+export async function deleteChapterFromFirestore(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, "diary_chapters", id);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error("Error deleting chapter from Firestore:", err);
+    throw err;
+  }
+}
+
+/**
+ * Reorder chapters in Firestore "diary_chapters"
+ */
+export async function reorderChaptersInFirestore(order: { id: string; order: number }[]): Promise<void> {
+  for (const item of order) {
+    const docRef = doc(db, "diary_chapters", item.id);
+    await updateDoc(docRef, {
+      order: item.order,
+      updatedAt: serverTimestamp()
+    });
+  }
+}
+
+/**
+ * Fetch all chapters directly from Firestore
+ */
+export async function fetchAllChaptersFromFirestore(): Promise<DiaryChapter[]> {
+  try {
+    const snap = await getDocs(collection(db, "diary_chapters"));
+    const items: DiaryChapter[] = [];
+    snap.forEach((d) => {
+      items.push(docToChapter(d.id, d.data()));
+    });
+    return items.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (err) {
+    console.warn("Fetch all chapters error:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetch published chapters directly from Firestore
+ */
+export async function fetchPublishedChaptersFromFirestore(): Promise<DiaryChapter[]> {
+  try {
+    const snap = await getDocs(collection(db, "diary_chapters"));
+    const items: DiaryChapter[] = [];
+    snap.forEach((d) => {
+      const data = d.data();
+      if (data.status === 'published' || !data.status) {
+        items.push(docToChapter(d.id, data));
+      }
+    });
+    return items.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (err) {
+    console.warn("Fetch published chapters error:", err);
+    return [];
+  }
 }
 
 /**

@@ -171,7 +171,7 @@ export const ClosedBookAccess: React.FC<ClosedBookAccessProps> = ({
                   htmlFor="access-code-input"
                   className="text-[11px] tracking-[0.25em] text-[#d4af37]/90 uppercase font-semibold font-cinzel"
                 >
-                  ENTER ACCESS PASSCODE
+                  ENTER ACCESS PIN
                 </label>
               </div>
 

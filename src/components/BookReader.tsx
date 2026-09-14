@@ -383,10 +383,10 @@ export const BookReader: React.FC<BookReaderProps> = ({
               <Lock className="w-6 h-6 text-[#d4af37]" />
             </div>
             <h4 className="font-cinzel text-xs tracking-[0.25em] uppercase text-[#d4af37] font-semibold">
-              Passcode Protected Archive
+              Protected Archive
             </h4>
             <p className="font-serif-book italic text-base opacity-80 max-w-xs leading-relaxed">
-              "The inscription on this leaf remains veiled until the secret passcode is entered."
+              "The inscription on this leaf remains veiled until the security key is entered."
             </p>
             <div className="w-12 h-px bg-current opacity-20 my-2" />
             <span className="text-[10px] font-cinzel tracking-widest uppercase opacity-60">

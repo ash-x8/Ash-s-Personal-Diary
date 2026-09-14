@@ -14,11 +14,11 @@ export const BookSecretLockedPage: React.FC<BookSecretLockedPageProps> = ({
   onUnlock,
   isEditor = false
 }) => {
-  const [passcode, setPasscode] = useState('');
+  const [securityKey, setSecurityKey] = useState('');
   const [error, setError] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
-  const [showPasscode, setShowPasscode] = useState(false);
+  const [showSecurityKey, setShowSecurityKey] = useState(false);
 
   const formattedDate = new Date(entry.date).toLocaleDateString('en-US', {
     weekday: 'long',
@@ -31,11 +31,11 @@ export const BookSecretLockedPage: React.FC<BookSecretLockedPageProps> = ({
     if (e) e.preventDefault();
     setError(false);
 
-    const enteredClean = passcode.trim();
-    const targetPasscode = (entry.secretPasscode || '').trim();
+    const enteredClean = securityKey.trim();
+    const targetKey = (entry.securityKey || entry.secretPasscode || '').trim();
 
-    // If no passcode was configured, or matches entered passcode
-    if (!targetPasscode || enteredClean === targetPasscode) {
+    // If no key was configured, or matches entered key
+    if (!targetKey || enteredClean === targetKey) {
       setIsSuccess(true);
       soundService.playUnlock();
       setTimeout(() => {
@@ -88,23 +88,23 @@ export const BookSecretLockedPage: React.FC<BookSecretLockedPageProps> = ({
         </div>
 
         <p className="font-serif-book italic text-xs sm:text-sm opacity-75 max-w-xs mb-3">
-          "This page has been locked under a private passcode."
+          "This page has been locked under a private security key."
         </p>
 
         {/* The Hint typed by the author */}
         <div className="w-full max-w-sm mx-auto my-2 p-3.5 sm:p-4 rounded-xl border border-[#d4af37]/35 bg-[#d4af37]/10 text-center shadow-xs">
           <div className="flex items-center justify-center gap-1.5 text-[10px] font-cinzel tracking-[0.2em] uppercase text-[#d4af37] font-semibold mb-1">
             <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
-            <span>Passcode Hint</span>
+            <span>Security Key Hint</span>
           </div>
           <p className="font-serif-book italic text-sm sm:text-base text-current opacity-95 leading-relaxed break-words">
-            {entry.secretHint && entry.secretHint.trim()
-              ? `"${entry.secretHint}"`
-              : "No hint provided for this secret page."}
+            {entry.securityHint && entry.securityHint.trim()
+              ? `"${entry.securityHint}"`
+              : (entry.secretHint && entry.secretHint.trim() ? `"${entry.secretHint}"` : "No hint provided for this secret page.")}
           </p>
         </div>
 
-        {/* Passcode Input Form */}
+        {/* Security Key Input Form */}
         <form
           onSubmit={handleAttemptUnlock}
           className={`w-full max-w-xs mx-auto space-y-2.5 mt-2 transition-transform ${
@@ -113,13 +113,13 @@ export const BookSecretLockedPage: React.FC<BookSecretLockedPageProps> = ({
         >
           <div className="relative">
             <input
-              type={showPasscode ? "text" : "password"}
-              value={passcode}
+              type={showSecurityKey ? "text" : "password"}
+              value={securityKey}
               onChange={(e) => {
-                setPasscode(e.target.value);
+                setSecurityKey(e.target.value);
                 if (error) setError(false);
               }}
-              placeholder="Enter passcode to read…"
+              placeholder="Enter security key to read…"
               autoComplete="off"
               className={`w-full h-10 px-3 pr-10 text-xs sm:text-sm bg-black/15 dark:bg-black/30 border rounded-lg text-center tracking-widest focus:outline-none transition-colors ${
                 error
@@ -129,24 +129,24 @@ export const BookSecretLockedPage: React.FC<BookSecretLockedPageProps> = ({
             />
             <button
               type="button"
-              onClick={() => setShowPasscode(!showPasscode)}
+              onClick={() => setShowSecurityKey(!showSecurityKey)}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-90 p-1 text-current"
-              title={showPasscode ? "Hide passcode" : "Show passcode"}
+              title={showSecurityKey ? "Hide key" : "Show key"}
             >
-              {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showSecurityKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
 
           {error && (
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-red-600 dark:text-red-400 font-sans animate-fade-in">
               <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-              <span>Incorrect passcode. Check the hint above.</span>
+              <span>Incorrect security key. Check the hint above.</span>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={!passcode.trim() || isSuccess}
+            disabled={!securityKey.trim() || isSuccess}
             className={`w-full h-9 rounded-lg font-cinzel text-xs uppercase tracking-[0.2em] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
               isSuccess
                 ? 'bg-emerald-600 text-white'

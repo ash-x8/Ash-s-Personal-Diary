@@ -6,7 +6,7 @@ interface SecretPageModalProps {
   isOpen: boolean;
   entry: DiaryEntry | null;
   onClose: () => void;
-  onSave: (entryId: string, isSecret: boolean, passcode: string, hint: string) => Promise<void>;
+  onSave: (entryId: string, isSecret: boolean, securityKey: string, hint: string) => Promise<void>;
 }
 
 export const SecretPageModal: React.FC<SecretPageModalProps> = ({
@@ -16,17 +16,17 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
   onSave
 }) => {
   const [isSecret, setIsSecret] = useState(false);
-  const [passcode, setPasscode] = useState('');
+  const [securityKey, setSecurityKey] = useState('');
   const [hint, setHint] = useState('');
-  const [showPasscode, setShowPasscode] = useState(false);
+  const [showSecurityKey, setShowSecurityKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (entry) {
       setIsSecret(Boolean(entry.isSecret));
-      setPasscode(entry.secretPasscode || '');
-      setHint(entry.secretHint || '');
+      setSecurityKey(entry.securityKey || entry.secretPasscode || '');
+      setHint(entry.securityHint || entry.secretHint || '');
       setErrorMsg(null);
     }
   }, [entry, isOpen]);
@@ -35,18 +35,18 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSecret && !passcode.trim()) {
-      setErrorMsg('Please specify a secret passcode before sealing this page.');
+    if (isSecret && !securityKey.trim()) {
+      setErrorMsg('Please specify a security key before sealing this page.');
       return;
     }
 
     setIsSaving(true);
     setErrorMsg(null);
     try {
-      await onSave(entry.id, isSecret, passcode.trim(), hint.trim());
+      await onSave(entry.id, isSecret, securityKey.trim(), hint.trim());
       onClose();
     } catch (err) {
-      setErrorMsg('Failed to save secret passcode settings. Please try again.');
+      setErrorMsg('Failed to save security key settings. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -66,7 +66,7 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
             </div>
             <div>
               <h3 className="font-cinzel text-sm uppercase tracking-wider text-[#f5ebd7] font-semibold">
-                Secret Page Passcode
+                Secret Page Security Key
               </h3>
               <p className="text-xs text-[#8e887d] truncate max-w-[260px] font-serif-book">
                 {entry.title}
@@ -97,7 +97,7 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
                 )}
               </div>
               <p className="text-[11px] text-[#8e887d] mt-0.5">
-                Lock this individual page with its own independent passcode
+                Lock this individual page with its own independent security key
               </p>
             </div>
 
@@ -118,11 +118,11 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
 
           {isSecret ? (
             <div className="space-y-3.5 pt-1 animate-fade-in">
-              {/* Passcode Input */}
+              {/* Security Key Input */}
               <div>
                 <label className="block text-[11px] font-cinzel tracking-wider uppercase text-[#ded8cc] mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" /> Page Passcode *
+                    <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" /> Page Security Key *
                   </span>
                   <span className="text-[10px] text-[#8e887d] normal-case font-sans">
                     Unique to this page
@@ -130,26 +130,26 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
                 </label>
                 <div className="relative">
                   <input
-                    type={showPasscode ? "text" : "password"}
-                    value={passcode}
-                    onChange={(e) => setPasscode(e.target.value)}
-                    placeholder="Enter custom passcode for this page…"
+                    type={showSecurityKey ? "text" : "password"}
+                    value={securityKey}
+                    onChange={(e) => setSecurityKey(e.target.value)}
+                    placeholder="Enter custom security key for this page…"
                     className="w-full h-10 bg-[#0b0c10] border border-[#2f2e42] focus:border-[#d4af37] rounded-lg px-3 pr-10 text-xs text-[#ded8cc] focus:outline-none font-mono"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPasscode(!showPasscode)}
+                    onClick={() => setShowSecurityKey(!showSecurityKey)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7d776a] hover:text-[#ded8cc]"
                   >
-                    {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showSecurityKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Password Hint Input */}
+              {/* Security Hint Input */}
               <div>
                 <label className="block text-[11px] font-cinzel tracking-wider uppercase text-[#ded8cc] mb-1.5 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" /> Password Hint (Visible on Page)
+                  <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" /> Security Key Hint (Visible on Page)
                 </label>
                 <textarea
                   rows={2}
@@ -175,7 +175,7 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
             </div>
           ) : (
             <div className="p-4 rounded-xl bg-[#161520] text-center text-xs text-[#8e887d] font-serif-book italic">
-              This page is currently open and visible to authorized readers of your book without a secondary passcode.
+              This page is currently open and visible to authorized readers of your book without a secondary security key.
             </div>
           )}
 
@@ -205,7 +205,7 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
               ) : (
                 <>
                   <Check className="w-3.5 h-3.5" />
-                  <span>Save Passcode Settings</span>
+                  <span>Save Security Settings</span>
                 </>
               )}
             </button>
@@ -215,3 +215,4 @@ export const SecretPageModal: React.FC<SecretPageModalProps> = ({
     </div>
   );
 };
+

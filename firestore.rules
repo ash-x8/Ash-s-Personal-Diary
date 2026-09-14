@@ -14,6 +14,10 @@ service cloud.firestore {
         && request.resource.data.get('status', 'draft') in ['draft', 'published'];
     }
 
+    match /diary_chapters/{chapterId} {
+      allow read, write: if true;
+    }
+
     match /diary_pages/{pageId} {
       allow read, write: if true;
     }

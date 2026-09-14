@@ -129,7 +129,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave }
           </h3>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           <div>
             <label className="block text-[11px] font-cinzel tracking-[0.18em] uppercase text-[#9e978b] mb-1.5">
               Default Archival Paper Texture
@@ -158,6 +158,34 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave }
               <option value="relaxed">Relaxed (Slow cinematic turning)</option>
               <option value="gentle">Gentle (Minimalist transition)</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-cinzel tracking-[0.18em] uppercase text-[#9e978b] mb-1.5">
+              Auto-Pagination Word Limit: <span className="text-[#d4af37] font-mono">{form.wordsPerPage || 100}</span> words
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="40"
+                max="250"
+                step="10"
+                value={form.wordsPerPage || 100}
+                onChange={(e) => setForm({ ...form, wordsPerPage: parseInt(e.target.value, 10) || 100 })}
+                className="flex-1 accent-[#d4af37] cursor-pointer"
+              />
+              <input
+                type="number"
+                min="30"
+                max="500"
+                value={form.wordsPerPage || 100}
+                onChange={(e) => setForm({ ...form, wordsPerPage: parseInt(e.target.value, 10) || 100 })}
+                className="w-16 h-10 bg-[#0c0c11] border border-[#2e2d3e] rounded-lg px-2 text-center text-xs text-[#d4af37] font-mono"
+              />
+            </div>
+            <p className="text-[10px] text-[#787265] mt-1">
+              Splits chapter content into pages automatically
+            </p>
           </div>
         </div>
 

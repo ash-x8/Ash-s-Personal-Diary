@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Save,
   Send,
@@ -9,25 +9,36 @@ import {
   MapPin,
   Tag,
   Image as ImageIcon,
-  Plus,
   Trash2,
-  Check,
   Loader2,
+  Check,
   CloudCheck,
   RefreshCw,
   Lock,
   KeyRound,
-  Sparkles
+  Sparkles,
+  BookOpen,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  FileText
 } from 'lucide-react';
-import { DiaryEntry } from '../types';
+import { DiaryEntry, DiaryChapter, PaginatedPage } from '../types';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { SinhalaUnicodeEditor, SinhalaUnicodeEditorRef } from './SinhalaUnicodeEditor';
 import { SinhalaTextInput } from './SinhalaTextInput';
-import { subscribeToActivePage } from '../services/firebase';
+import {
+  subscribeToActivePage,
+  subscribeToActiveChapter,
+  saveChapterToFirestore
+} from '../services/firebase';
 import { compressHtmlImages } from '../utils/imageCompressor';
+import { countWords, paginateChapter } from '../utils/pagination';
 
 interface EntryEditorProps {
   initialEntry?: DiaryEntry | null;
+  initialChapter?: DiaryChapter | null;
+  wordsPerPage?: number;
   onSave: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onAutoSave?: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
   onCancel: () => void;
@@ -52,6 +63,8 @@ const MOOD_OPTIONS = [
 
 export const EntryEditor: React.FC<EntryEditorProps> = ({
   initialEntry,
+  initialChapter,
+  wordsPerPage = 100,
   onSave,
   onAutoSave,
   onCancel,
@@ -60,24 +73,46 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   onUploadMedia,
   onDeleteMedia
 }) => {
-  const [currentId, setCurrentId] = useState<string | undefined>(initialEntry?.id);
-  const [title, setTitle] = useState(initialEntry?.title || '');
-  const [date, setDate] = useState(initialEntry?.date || new Date().toISOString().split('T')[0]);
-  const [content, setContent] = useState(initialEntry?.content || '<p></p>');
+  const effectiveId = initialChapter?.id || initialEntry?.id;
+  const effectiveTitle = initialChapter?.chapterTitle || initialEntry?.title || '';
+  const effectiveContent = initialChapter?.rawContent || initialEntry?.content || '<p></p>';
+  const effectiveDate = initialChapter?.date || initialEntry?.date || new Date().toISOString().split('T')[0];
+  const effectiveMood = initialChapter?.mood || initialEntry?.mood || '';
+  const effectiveLocation = initialChapter?.location || initialEntry?.location || '';
+  const effectiveTags = initialChapter?.tags || initialEntry?.tags || [];
+  const effectiveCover = initialChapter?.coverImage || initialEntry?.coverImage || '';
+  const effectiveGallery = initialChapter?.gallery || initialEntry?.gallery || [];
+  const effectiveStatus = initialChapter?.status || initialEntry?.status || 'published';
+  const effectiveOrder = initialChapter?.order || initialEntry?.pageOrder || 1;
+  const effectiveIsSecret = Boolean(initialChapter?.isSecret ?? initialEntry?.isSecret);
+  const effectiveSecurityKey =
+    initialChapter?.securityKey ||
+    initialEntry?.securityKey ||
+    initialEntry?.secretPasscode ||
+    '';
+  const effectiveSecurityHint =
+    initialChapter?.securityHint ||
+    initialEntry?.securityHint ||
+    '';
+
+  const [currentId, setCurrentId] = useState<string | undefined>(effectiveId);
+  const [title, setTitle] = useState(effectiveTitle);
+  const [date, setDate] = useState(effectiveDate);
+  const [content, setContent] = useState(effectiveContent);
   const [remoteContent, setRemoteContent] = useState<string | undefined>(undefined);
-  const [mood, setMood] = useState(initialEntry?.mood || '');
-  const [location, setLocation] = useState(initialEntry?.location || '');
-  const [tagsInput, setTagsInput] = useState((initialEntry?.tags || []).join(', '));
-  const [coverImage, setCoverImage] = useState(initialEntry?.coverImage || '');
-  const [gallery, setGallery] = useState<string[]>(initialEntry?.gallery || []);
-  const [status, setStatus] = useState<'draft' | 'published'>(initialEntry?.status || 'published');
-  const [pageOrder, setPageOrder] = useState<number>(initialEntry?.pageOrder || 1);
+  const [mood, setMood] = useState(effectiveMood);
+  const [location, setLocation] = useState(effectiveLocation);
+  const [tagsInput, setTagsInput] = useState(effectiveTags.join(', '));
+  const [coverImage, setCoverImage] = useState(effectiveCover);
+  const [gallery, setGallery] = useState<string[]>(effectiveGallery);
+  const [status, setStatus] = useState<'draft' | 'published'>(effectiveStatus);
+  const [pageOrder, setPageOrder] = useState<number>(effectiveOrder);
   const [customPageNumber, setCustomPageNumber] = useState<string>(
     initialEntry?.customPageNumber ? String(initialEntry.customPageNumber) : ''
   );
-  const [isSecret, setIsSecret] = useState<boolean>(initialEntry?.isSecret || false);
-  const [secretPasscode, setSecretPasscode] = useState<string>(initialEntry?.secretPasscode || '');
-  const [secretHint, setSecretHint] = useState<string>(initialEntry?.secretHint || '');
+  const [isSecret, setIsSecret] = useState<boolean>(effectiveIsSecret);
+  const [securityKey, setSecurityKey] = useState<string>(effectiveSecurityKey);
+  const [securityHint, setSecurityHint] = useState<string>(effectiveSecurityHint);
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -85,44 +120,86 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [mediaTargetField, setMediaTargetField] = useState<'cover' | 'gallery' | 'content'>('cover');
+  const [showPageSplits, setShowPageSplits] = useState(false);
 
   const editorRef = useRef<SinhalaUnicodeEditorRef>(null);
   const titleInputContainerRef = useRef<HTMLDivElement>(null);
-  const isInitialMount = useRef(true);
   const syncDebounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Multi-Device Real-Time Active Document Listener (Requirement C)
+  // Dynamic Word Count Calculation
+  const currentWordCount = useMemo(() => {
+    return countWords(content);
+  }, [content]);
+
+  // Dynamic Auto-Pagination Calculation
+  const dynamicChapterObj: DiaryChapter = useMemo(() => {
+    const parsedTags = tagsInput
+      .split(',')
+      .map((t) => t.trim().replace(/^#/, ''))
+      .filter(Boolean);
+
+    return {
+      id: currentId || 'temp-chapter',
+      chapterTitle: title.trim() || 'Untitled Chapter',
+      rawContent: content,
+      date,
+      mood: mood.trim() || undefined,
+      location: location.trim() || undefined,
+      tags: parsedTags,
+      coverImage: coverImage.trim() || undefined,
+      gallery,
+      status,
+      order: Number(pageOrder) || 1,
+      isSecret,
+      securityKey: isSecret ? securityKey.trim() : undefined,
+      securityHint: isSecret ? securityHint.trim() : undefined,
+      createdAt: null,
+      updatedAt: null
+    };
+  }, [currentId, title, content, date, mood, location, tagsInput, coverImage, gallery, status, pageOrder, isSecret, securityKey, securityHint]);
+
+  const paginatedPages = useMemo(() => {
+    return paginateChapter(dynamicChapterObj, wordsPerPage || 100);
+  }, [dynamicChapterObj, wordsPerPage]);
+
+  // Multi-Device Real-Time Active Document Listener
   useEffect(() => {
     if (!currentId) return;
 
-    const unsubscribe = subscribeToActivePage(currentId, (liveEntry) => {
-      if (!liveEntry) return;
+    // Listen to diary_chapters
+    const unsubChapter = subscribeToActiveChapter(currentId, (liveChapter) => {
+      if (!liveChapter) return;
 
-      // Remote content sync with Focus Lock
-      setRemoteContent(liveEntry.content);
+      setRemoteContent(liveChapter.rawContent);
 
-      // Check if Title is currently focused; if not, update title from remote device
       const isTitleFocused = titleInputContainerRef.current?.contains(document.activeElement);
-      if (!isTitleFocused && liveEntry.title !== title) {
-        setTitle(liveEntry.title);
+      if (!isTitleFocused && liveChapter.chapterTitle !== title) {
+        setTitle(liveChapter.chapterTitle);
       }
 
-      // Sync non-focused metadata fields
-      setDate((prev) => (document.activeElement?.id === 'entry-date-input' ? prev : liveEntry.date));
-      setStatus((prev) => liveEntry.status || prev);
-      if (liveEntry.mood) setMood(liveEntry.mood);
-      if (liveEntry.location) setLocation(liveEntry.location);
-      if (liveEntry.coverImage) setCoverImage(liveEntry.coverImage);
-      if (liveEntry.gallery) setGallery(liveEntry.gallery);
-      if (liveEntry.pageOrder) setPageOrder(liveEntry.pageOrder);
-      if (liveEntry.customPageNumber) setCustomPageNumber(String(liveEntry.customPageNumber));
-      if (liveEntry.isSecret !== undefined) setIsSecret(liveEntry.isSecret);
-      if (liveEntry.secretPasscode !== undefined) setSecretPasscode(liveEntry.secretPasscode);
-      if (liveEntry.secretHint !== undefined) setSecretHint(liveEntry.secretHint);
+      setDate((prev) => (document.activeElement?.id === 'chapter-date-input' ? prev : liveChapter.date || prev));
+      setStatus((prev) => liveChapter.status || prev);
+      if (liveChapter.mood) setMood(liveChapter.mood);
+      if (liveChapter.location) setLocation(liveChapter.location);
+      if (liveChapter.coverImage) setCoverImage(liveChapter.coverImage);
+      if (liveChapter.gallery) setGallery(liveChapter.gallery);
+      if (liveChapter.order) setPageOrder(liveChapter.order);
+      if (liveChapter.isSecret !== undefined) setIsSecret(liveChapter.isSecret);
+      if (liveChapter.securityKey !== undefined) setSecurityKey(liveChapter.securityKey);
+      if (liveChapter.securityHint !== undefined) setSecurityHint(liveChapter.securityHint);
+    });
+
+    // Also listen to legacy diary_pages for fallback
+    const unsubLegacy = subscribeToActivePage(currentId, (liveEntry) => {
+      if (!liveEntry) return;
+      if (!remoteContent) {
+        setRemoteContent(liveEntry.content);
+      }
     });
 
     return () => {
-      unsubscribe();
+      unsubChapter();
+      unsubLegacy();
     };
   }, [currentId]);
 
@@ -147,10 +224,11 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       pageOrder: Number(pageOrder) || 1,
       customPageNumber: customPageNumber ? Number(customPageNumber) : undefined,
       isSecret,
-      secretPasscode: isSecret ? secretPasscode.trim() : undefined,
-      secretHint: isSecret ? secretHint.trim() : undefined
+      securityKey: isSecret ? securityKey.trim() : undefined,
+      securityHint: isSecret ? securityHint.trim() : undefined,
+      secretPasscode: isSecret ? securityKey.trim() : undefined // Backwards compatibility
     };
-  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, isSecret, secretPasscode, secretHint]);
+  }, [title, date, content, mood, location, tagsInput, coverImage, gallery, status, pageOrder, customPageNumber, isSecret, securityKey, securityHint]);
 
   // Execute Firestore dynamic sync (debounced 500ms post-keystroke)
   const performDynamicSync = useCallback(async () => {
@@ -166,6 +244,27 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       if (res && (res as DiaryEntry).id) {
         setCurrentId((res as DiaryEntry).id);
       }
+
+      // Also persist to diary_chapters collection
+      await saveChapterToFirestore(
+        {
+          chapterTitle: title.trim(),
+          rawContent: currentHTML,
+          date,
+          status,
+          order: Number(pageOrder) || 1,
+          mood: mood.trim() || undefined,
+          location: location.trim() || undefined,
+          tags: data.tags,
+          coverImage: coverImage.trim() || undefined,
+          gallery,
+          isSecret,
+          securityKey: isSecret ? securityKey.trim() : undefined,
+          securityHint: isSecret ? securityHint.trim() : undefined
+        },
+        currentId
+      ).catch(() => {});
+
       setAutoSaveStatus('saved');
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setLastSavedTime(timeStr);
@@ -173,7 +272,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       console.warn('Dynamic sync error:', err);
       setAutoSaveStatus('unsaved');
     }
-  }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId]);
+  }, [title, content, isSubmitting, getParsedEntryData, onAutoSave, onSave, status, currentId, date, pageOrder, mood, location, coverImage, gallery, isSecret, securityKey, securityHint]);
 
   // Trigger debounced dynamic sync on changes
   const handleContentUpdate = (newHtml: string) => {
@@ -204,13 +303,13 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   const handleSave = async (shouldPublish: boolean) => {
     setValidationError(null);
     if (!title.trim()) {
-      setValidationError('Please provide a title for the entry.');
+      setValidationError('Please provide a chapter title.');
       return;
     }
 
     const currentHTML = editorRef.current ? editorRef.current.getHTML() : content;
     if (!currentHTML.trim() || currentHTML === '<p></p>') {
-      setValidationError('Please write some thoughts for the entry.');
+      setValidationError('Please write some thoughts for the chapter.');
       return;
     }
 
@@ -245,18 +344,43 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
           gallery,
           status: shouldPublish ? 'published' : 'draft',
           pageOrder: Number(pageOrder) || 1,
-          customPageNumber: customPageNumber ? Number(customPageNumber) : undefined
+          customPageNumber: customPageNumber ? Number(customPageNumber) : undefined,
+          isSecret,
+          securityKey: isSecret ? securityKey.trim() : undefined,
+          securityHint: isSecret ? securityHint.trim() : undefined,
+          secretPasscode: isSecret ? securityKey.trim() : undefined
         },
         shouldPublish,
         currentId
       );
 
-      if (saved && (saved as DiaryEntry).id) {
+      const chapterSaved = await saveChapterToFirestore(
+        {
+          chapterTitle: title.trim(),
+          rawContent: processedHTML,
+          date,
+          status: shouldPublish ? 'published' : 'draft',
+          order: Number(pageOrder) || 1,
+          mood: mood.trim() || undefined,
+          location: location.trim() || undefined,
+          tags: parsedTags,
+          coverImage: coverImage.trim() || undefined,
+          gallery,
+          isSecret,
+          securityKey: isSecret ? securityKey.trim() : undefined,
+          securityHint: isSecret ? securityHint.trim() : undefined
+        },
+        currentId
+      );
+
+      if (chapterSaved?.id) {
+        setCurrentId(chapterSaved.id);
+      } else if (saved && (saved as DiaryEntry).id) {
         setCurrentId((saved as DiaryEntry).id);
       }
       setAutoSaveStatus('saved');
     } catch (err: any) {
-      setValidationError(err.message || 'Error saving entry to Firestore.');
+      setValidationError(err.message || 'Error saving chapter to Firestore.');
       setAutoSaveStatus('unsaved');
     } finally {
       setIsSubmitting(false);
@@ -267,10 +391,10 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
     const currentHTML = editorRef.current ? editorRef.current.getHTML() : content;
     const previewEntry: DiaryEntry = {
       id: currentId || 'preview-temp',
-      title: title.trim() || 'Untitled Journal Entry',
+      title: title.trim() || 'Untitled Chapter',
       slug: 'preview',
       date,
-      content: currentHTML || '<p>A quiet page waiting for thoughts…</p>',
+      content: currentHTML || '<p>A quiet leaf waiting for thoughts…</p>',
       mood: mood.trim() || undefined,
       location: location.trim() || undefined,
       tags: tagsInput.split(',').map((t) => t.trim()).filter(Boolean),
@@ -278,6 +402,10 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
       gallery,
       status,
       pageOrder: Number(pageOrder) || 1,
+      isSecret,
+      securityKey: isSecret ? securityKey.trim() : undefined,
+      securityHint: isSecret ? securityHint.trim() : undefined,
+      secretPasscode: isSecret ? securityKey.trim() : undefined,
       createdAt: initialEntry?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -301,55 +429,55 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
   };
 
   return (
-    <div id="entry-editor-root" className="max-w-5xl mx-auto pb-16 animate-fade-in">
-      {/* Top action header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 mb-6 border-b border-[#2d2c3d]">
+    <div id="chapter-editor-root" className="max-w-6xl mx-auto px-4 sm:px-6 py-6 font-sans">
+      {/* Top Header & Global Status */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-5 mb-6 border-b border-[#252433]">
         <div className="flex items-center gap-3">
           <button
             type="button"
-            id="editor-back-btn"
             onClick={onCancel}
-            className="p-2 rounded-lg bg-[#1a1926] hover:bg-[#252436] text-[#a8a295] hover:text-[#f5ebd7] transition-colors border border-[#313045] cursor-pointer"
-            title="Return to Inscriptions List"
+            className="p-2 rounded-lg bg-[#181824] hover:bg-[#232334] text-[#cfc8ba] transition-colors cursor-pointer"
+            title="Return to Dashboard"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h2 className="font-cinzel text-xl text-[#f5ebd7] font-semibold tracking-wide">
-              {currentId ? 'Edit Diary Page' : 'New Inscription'}
+            <h2 className="font-cinzel text-lg sm:text-xl font-bold tracking-[0.18em] uppercase text-[#f5ebd7] flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-[#d4af37]" />
+              {currentId ? 'Inscribe Chapter' : 'New Continuous Chapter'}
             </h2>
-            <p className="text-xs text-[#8e887d] font-serif-book">
-              {currentId ? `Page ID: ${currentId}` : 'Will persist to Firestore automatically'}
-            </p>
+            {/* Auto-Pagination Status Banner */}
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#1b1a29] border border-[#37354f] text-[11px] font-mono text-[#e8c872]">
+                <Layers className="w-3 h-3 text-[#d4af37]" />
+                Chapter {pageOrder} • {paginatedPages.length} {paginatedPages.length === 1 ? 'Page' : 'Pages'}
+              </span>
+              <span className="text-[11px] font-mono text-[#9e978b]">
+                ~{currentWordCount} Words • {wordsPerPage} w/p limit
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Sync status & Actions */}
-        <div className="flex items-center flex-wrap gap-2.5">
-          {/* Live sync badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14141d] border border-[#2d2c3d] text-xs">
+        {/* Action Controls & Sync Indicator */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Live Sync Status */}
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14141d] border border-[#262536] text-xs">
             {autoSaveStatus === 'saving' && (
-              <>
-                <Loader2 className="w-3.5 h-3.5 text-[#d4af37] animate-spin" />
-                <span className="text-[#d4af37] font-mono">Syncing…</span>
-              </>
+              <span className="text-[#d4af37] flex items-center gap-1 font-mono text-[11px]">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Syncing Chapter…
+              </span>
             )}
             {autoSaveStatus === 'saved' && (
-              <>
-                <CloudCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-400 font-mono">
-                  Synced {lastSavedTime ? `at ${lastSavedTime}` : ''}
-                </span>
-              </>
+              <span className="text-emerald-400 flex items-center gap-1 font-mono text-[11px]">
+                <CloudCheck className="w-3.5 h-3.5" /> Saved {lastSavedTime && `at ${lastSavedTime}`}
+              </span>
             )}
             {autoSaveStatus === 'unsaved' && (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-[#a8a295] font-mono text-[11px]">Unsynced</span>
-              </>
+              <span className="text-amber-400/80 font-mono text-[11px]">Unsaved Edits</span>
             )}
             {autoSaveStatus === 'idle' && (
-              <span className="text-[#7a7468] font-mono text-[11px]">Live Sync Ready</span>
+              <span className="text-[#7a7468] font-mono text-[11px]">Auto-Pagination Active</span>
             )}
           </div>
 
@@ -380,7 +508,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             className="px-4 py-2 rounded-lg bg-[#d4af37] hover:bg-[#e8c872] text-[#121217] font-cinzel text-xs font-bold tracking-wider uppercase transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            Publish to Reader
+            Publish Chapter
           </button>
         </div>
       </div>
@@ -403,19 +531,72 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
         </div>
       )}
 
+      {/* Auto-Pagination Breakdown Strip (Live visual page breaks) */}
+      <div className="mb-6 bg-[#151421] border border-[#2c2a3e] rounded-xl p-3.5 transition-all">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#d4af37] animate-pulse" />
+            <h3 className="font-cinzel text-xs tracking-[0.2em] uppercase text-[#e5ded0] font-semibold">
+              Live Auto-Pagination Preview ({paginatedPages.length} {paginatedPages.length === 1 ? 'Page' : 'Pages'})
+            </h3>
+            <span className="text-[11px] font-mono text-[#948d7f]">
+              Target: ~{wordsPerPage} words/page
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPageSplits(!showPageSplits)}
+            className="text-xs text-[#d4af37] hover:text-[#f0d588] flex items-center gap-1 font-cinzel tracking-wider uppercase cursor-pointer"
+          >
+            {showPageSplits ? (
+              <>Hide Page Splits <ChevronUp className="w-3.5 h-3.5" /></>
+            ) : (
+              <>Inspect Page Splits <ChevronDown className="w-3.5 h-3.5" /></>
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible visual page cards */}
+        {showPageSplits && (
+          <div className="mt-3.5 pt-3 border-t border-[#262436] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {paginatedPages.map((page, idx) => (
+              <div
+                key={page.id || idx}
+                className="bg-[#0e0e15] border border-[#2d2c3e] rounded-lg p-3 text-xs flex flex-col justify-between hover:border-[#d4af37]/50 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5 font-mono text-[10px] text-[#d4af37]">
+                    <span className="font-bold">Leaf {idx + 1} of {paginatedPages.length}</span>
+                    <span className="text-[#888172]">{page.wordCount} words</span>
+                  </div>
+                  <div
+                    className="text-[#bbb3a4] font-serif-book line-clamp-3 text-[11px] leading-relaxed opacity-85"
+                    dangerouslySetInnerHTML={{ __html: page.content || '<em class="opacity-50">Empty leaf…</em>' }}
+                  />
+                </div>
+                <div className="mt-2 pt-2 border-t border-[#1d1c2b] flex items-center justify-between text-[9px] font-mono text-[#787265]">
+                  <span>Book Page {page.globalPageNumber}</span>
+                  <span>{idx === 0 ? 'Chapter Opening' : idx === paginatedPages.length - 1 ? 'Chapter Conclusion' : 'Flowing Body'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Main Inscription Fields */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Sinhala-Safe Title Input */}
+          {/* Sinhala-Safe Chapter Title Input */}
           <div ref={titleInputContainerRef}>
             <label className="block text-[11px] font-cinzel tracking-[0.2em] uppercase text-[#9e978b] mb-1.5">
-              Entry Inscription Title * (සිංහල හෝ English)
+              Chapter Title * (සිංහල හෝ English)
             </label>
             <SinhalaTextInput
-              id="entry-title-input"
+              id="chapter-title-input"
               value={title}
               onValueChange={handleTitleChange}
-              placeholder="e.g. A Quiet Night, නිහඬ රැයක සිතුවිලි…"
+              placeholder="e.g. Chapter 1: The Beginning, නිහඬ ආරම්භය…"
               className="w-full h-12 bg-[#121219] border border-[#2d2c3d] focus:border-[#d4af37] rounded-xl px-4 font-serif-book text-xl text-[#f4eedf] placeholder-[#5a554a] focus:outline-none focus:ring-1 focus:ring-[#d4af37]/30"
               required
             />
@@ -428,7 +609,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-[#d4af37]" /> Date of Occurrence
               </label>
               <input
-                id="entry-date-input"
+                id="chapter-date-input"
                 type="date"
                 value={date}
                 onChange={(e) => {
@@ -444,7 +625,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                 Publication Status
               </label>
               <select
-                id="entry-status-select"
+                id="chapter-status-select"
                 value={status}
                 onChange={(e) => {
                   setStatus(e.target.value as any);
@@ -452,32 +633,32 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                 }}
                 className="w-full h-10 bg-[#121219] border border-[#2d2c3d] focus:border-[#d4af37] rounded-lg px-3 text-sm text-[#ded8cc] focus:outline-none"
               >
-                <option value="published">Published (Visible in Reader across all devices)</option>
+                <option value="published">Published (Visible in Book Reader across devices)</option>
                 <option value="draft">Draft (Private to Editor)</option>
               </select>
             </div>
           </div>
 
-          {/* Sinhala-Safe Controlled Rich Text Content Editor (Requirement A & C) */}
+          {/* Sinhala-Safe Controlled Rich Text Chapter Editor */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[11px] font-cinzel tracking-[0.2em] uppercase text-[#9e978b]">
-                Journal Content * (Sinhala / English Unicode Safe)
+                Continuous Chapter Content * (Sinhala / English Unicode Safe)
               </label>
               <span className="text-[10px] text-[#d4af37]/80 font-mono">
-                Strict LTR • Wijesekara & Helakuru IME Protected
+                Continuous Inscription • Automatic Page Pagination (~{wordsPerPage} w/p)
               </span>
             </div>
 
             <SinhalaUnicodeEditor
               ref={editorRef}
-              id="entry-content-editor"
+              id="chapter-content-editor"
               initialContent={content}
               externalContent={remoteContent}
               onContentChange={handleContentUpdate}
               onOpenMedia={() => openMediaFor('content')}
-              minHeight="340px"
-              maxHeight="540px"
+              minHeight="380px"
+              maxHeight="580px"
             />
           </div>
         </div>
@@ -540,22 +721,22 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                   setTagsInput(e.target.value);
                   setAutoSaveStatus('unsaved');
                 }}
-                placeholder="Night, Reflections, Autumn"
+                placeholder="Beginning, Reflections, Autumn"
                 className="w-full h-9 bg-[#0b0c10] border border-[#2e2d3d] rounded-lg px-3 text-xs text-[#ded8cc] focus:outline-none text-left ltr"
               />
             </div>
           </div>
 
-          {/* Book Page Order */}
+          {/* Book Chapter Order */}
           <div className="bg-[#14141d] border border-[#2c2b3a] rounded-xl p-4 space-y-4">
             <h4 className="font-cinzel text-xs tracking-[0.2em] uppercase text-[#d4af37] font-semibold">
-              Book Page Numbering
+              Chapter Ordering
             </h4>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[10px] text-[#8e887d] mb-1">
-                  Sequential Order
+                  Chapter Number
                 </label>
                 <input
                   type="number"
@@ -571,7 +752,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
 
               <div>
                 <label className="block text-[10px] text-[#8e887d] mb-1">
-                  Display Page #
+                  Starting Page #
                 </label>
                 <input
                   type="text"
@@ -587,7 +768,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
             </div>
           </div>
 
-          {/* Secret Page Protection */}
+          {/* Secret Chapter Protection (Clean Terminology: Security Key) */}
           <div className="bg-[#14141d] border border-[#2c2b3a] rounded-xl p-4 space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -596,9 +777,9 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
                 </div>
                 <div>
                   <h4 className="font-cinzel text-xs tracking-[0.18em] uppercase text-[#d4af37] font-semibold">
-                    Secret Page Protection
+                    Secret Chapter Protection
                   </h4>
-                  <p className="text-[10px] text-[#8e887d]">Lock this page with a custom passcode</p>
+                  <p className="text-[10px] text-[#8e887d]">Lock this chapter with a custom security key</p>
                 </div>
               </div>
 
@@ -624,39 +805,39 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               <div className="pt-2 border-t border-[#232330] space-y-3 animate-fade-in">
                 <div>
                   <label className="block text-[11px] text-[#ded8cc] mb-1 flex items-center gap-1">
-                    <KeyRound className="w-3 h-3 text-[#d4af37]" /> Secret Passcode *
+                    <KeyRound className="w-3 h-3 text-[#d4af37]" /> Security Key *
                   </label>
                   <input
                     type="text"
-                    value={secretPasscode}
+                    value={securityKey}
                     onChange={(e) => {
-                      setSecretPasscode(e.target.value);
+                      setSecurityKey(e.target.value);
                       setAutoSaveStatus('unsaved');
                     }}
-                    placeholder="e.g. 7482 or secret-word"
+                    placeholder="e.g. 7482 or secret-token"
                     className="w-full h-9 bg-[#0b0c10] border border-[#2e2d3d] focus:border-[#d4af37] rounded-lg px-3 text-xs text-[#ded8cc] focus:outline-none font-mono"
                   />
                   <span className="text-[10px] text-[#8e887d] mt-1 block">
-                    The custom password required to unlock and read this specific page.
+                    The custom security key required to unlock and read this specific chapter.
                   </span>
                 </div>
 
                 <div>
                   <label className="block text-[11px] text-[#ded8cc] mb-1 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-[#d4af37]" /> Password Hint (Displayed to Readers)
+                    <Sparkles className="w-3 h-3 text-[#d4af37]" /> Security Key Hint (Displayed to Readers)
                   </label>
                   <input
                     type="text"
-                    value={secretHint}
+                    value={securityHint}
                     onChange={(e) => {
-                      setSecretHint(e.target.value);
+                      setSecurityHint(e.target.value);
                       setAutoSaveStatus('unsaved');
                     }}
                     placeholder="e.g. The year we first met at the library"
                     className="w-full h-9 bg-[#0b0c10] border border-[#2e2d3d] focus:border-[#d4af37] rounded-lg px-3 text-xs text-[#ded8cc] focus:outline-none"
                   />
                   <span className="text-[10px] text-[#8e887d] mt-1 block">
-                    The hint you type here will be displayed directly on the locked secret page.
+                    The hint you type here will be displayed directly on the locked secret pages.
                   </span>
                 </div>
               </div>
@@ -682,7 +863,7 @@ export const EntryEditor: React.FC<EntryEditorProps> = ({
               <div className="relative rounded-lg overflow-hidden border border-[#333144] aspect-video group">
                 <img
                   src={coverImage}
-                  alt="Entry Cover"
+                  alt="Chapter Cover"
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                 />

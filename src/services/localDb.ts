@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: DiarySettings = {
   autoPageTurn: false,
   readerAccessEnabled: true,
   editorAccessEnabled: true,
+  wordsPerPage: 100,
   lastUpdated: new Date().toISOString()
 };
 

@@ -234,7 +234,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
   const handleSaveSecretSettings = async (
     entryId: string,
     isSecret: boolean,
-    passcode: string,
+    securityKey: string,
     hint: string
   ) => {
     const targetEntry = entries.find((e) => e.id === entryId);
@@ -244,7 +244,9 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
       {
         ...targetEntry,
         isSecret,
-        secretPasscode: isSecret ? passcode : '',
+        securityKey: isSecret ? securityKey : '',
+        secretPasscode: isSecret ? securityKey : '',
+        securityHint: isSecret ? hint : '',
         secretHint: isSecret ? hint : ''
       },
       targetEntry.status === 'published',
@@ -558,7 +560,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                               ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/40'
                               : 'text-[#7d786d] hover:text-[#d4af37]'
                           }`}
-                          title={entry.isSecret ? "Secret Page Locked (Configure Passcode & Hint)" : "Set Secret Passcode for this page"}
+                          title={entry.isSecret ? "Secret Page Locked (Configure Security Key & Hint)" : "Set Security Key for this page"}
                         >
                           <KeyRound className="w-3.5 h-3.5" />
                         </button>
@@ -831,8 +833,8 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                           }`}
                           title={
                             entry.isSecret
-                              ? "Secret Passcode Protected (Click to edit passcode & hint)"
-                              : "Set Secret Passcode & Hint for this page"
+                              ? "Protected by Security Key (Click to edit key & hint)"
+                              : "Set Security Key & Hint for this page"
                           }
                         >
                           <KeyRound className="w-3.5 h-3.5" />
@@ -871,6 +873,7 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
         {currentTab === 'new-entry' && (
           <EntryEditor
             initialEntry={editingEntry}
+            wordsPerPage={settings.wordsPerPage || 100}
             onSave={handleSaveFromEditor}
             onAutoSave={handleAutoSaveFromEditor}
             onCancel={() => { setEditingEntry(null); setCurrentTab('entries'); }}
