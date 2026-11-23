@@ -148,17 +148,18 @@ export function verifyMutationOrigin(req: Request, res: Response, next: NextFunc
   }
 
   const origin = req.headers.origin;
-  const host = req.headers.host;
-  if (origin && host) {
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    .trim();
+  const rawHost = String(req.headers.host || '').trim();
+
+  if (origin && (forwardedHost || rawHost)) {
     try {
       const originHost = new URL(origin).host;
-      if (originHost !== host && !origin.startsWith('http://localhost') && !origin.startsWith('https://')) {
-        res.status(403).json({ error: 'Cross-origin request rejected.' });
-        return;
-      }
-      // Strict match when same-host expected
-      const allowedHostMatch = originHost === host;
-      if (!allowedHostMatch) {
+      const matchesForwarded = Boolean(forwardedHost && originHost === forwardedHost);
+      const matchesRaw = Boolean(rawHost && originHost === rawHost);
+
+      if (!matchesForwarded && !matchesRaw) {
         res.status(403).json({ error: 'Origin mismatch.' });
         return;
       }

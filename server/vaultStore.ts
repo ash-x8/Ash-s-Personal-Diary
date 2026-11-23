@@ -11,6 +11,7 @@ interface StoredHash {
 interface VaultData {
   editor?: StoredHash;
   reader?: StoredHash;
+  overrideEnv?: boolean;
   updatedAt: string;
 }
 
@@ -19,9 +20,10 @@ const VAULT_FILE = path.join(DATA_DIR, 'vault.json');
 
 let memoryVault: VaultData = { updatedAt: new Date(0).toISOString() };
 let diskLoaded = false;
+let testMode = false;
 
 function loadVaultFromDisk(): VaultData {
-  if (diskLoaded) return memoryVault;
+  if (testMode || diskLoaded) return memoryVault;
   diskLoaded = true;
   try {
     if (fs.existsSync(VAULT_FILE)) {
@@ -39,6 +41,7 @@ function loadVaultFromDisk(): VaultData {
 
 function saveVaultToDisk(data: VaultData): void {
   memoryVault = data;
+  if (testMode) return;
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -71,7 +74,6 @@ export function timingSafeEqualText(a: string, b: string): boolean {
   const bufA = Buffer.from(a, 'utf-8');
   const bufB = Buffer.from(b, 'utf-8');
   if (bufA.length !== bufB.length) {
-    // Maintain constant-time comparison even on length mismatch
     crypto.timingSafeEqual(bufA, bufA);
     return false;
   }
@@ -101,7 +103,10 @@ export function getVaultSetupStatus(): VaultSetupStatus {
   };
 }
 
-export function claimInitialVault(editorPin: string, readerPin?: string): { ok: boolean; error?: string } {
+export function claimInitialVault(
+  editorPin: string,
+  readerPin?: string
+): { ok: boolean; error?: string } {
   const status = getVaultSetupStatus();
   if (!status.needsSetup) {
     return { ok: false, error: 'Vault access codes are already configured.' };
@@ -131,7 +136,10 @@ export function claimInitialVault(editorPin: string, readerPin?: string): { ok: 
   return { ok: true };
 }
 
-export function updateVaultPins(editorPin?: string, readerPin?: string): { ok: boolean; error?: string } {
+export function updateVaultPins(
+  editorPin?: string,
+  readerPin?: string
+): { ok: boolean; error?: string } {
   const vault = { ...loadVaultFromDisk() };
 
   if (editorPin !== undefined && editorPin.trim() !== '') {
@@ -153,6 +161,7 @@ export function updateVaultPins(editorPin?: string, readerPin?: string): { ok: b
     }
   }
 
+  vault.overrideEnv = true;
   vault.updatedAt = new Date().toISOString();
   saveVaultToDisk(vault);
   return { ok: true };
@@ -166,7 +175,17 @@ export function verifyAccessPin(pin: string): UserRole | null {
   const envReader = getEnvReaderCode();
   const vault = loadVaultFromDisk();
 
-  // Check environment overrides first, then stored scrypt vault hashes
+  // If the owner rotated/claimed explicit vault hashes with overrideEnv, check those first
+  if (vault.overrideEnv && vault.editor) {
+    if (verifyPinHash(candidate, vault.editor)) {
+      return 'EDITOR';
+    }
+    if (vault.reader && verifyPinHash(candidate, vault.reader)) {
+      return 'READER';
+    }
+    return null;
+  }
+
   if (envEditor && timingSafeEqualText(candidate, envEditor)) {
     return 'EDITOR';
   }
@@ -185,6 +204,7 @@ export function verifyAccessPin(pin: string): UserRole | null {
 }
 
 export function resetVaultForTesting(): void {
+  testMode = true;
   memoryVault = { updatedAt: new Date(0).toISOString() };
   diskLoaded = true;
 }

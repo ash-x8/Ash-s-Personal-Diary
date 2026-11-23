@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAnalytics } from 'firebase/analytics';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -23,7 +24,6 @@ import {
 } from 'firebase/firestore';
 import type { DiaryChapter, DiaryEntry, DiarySettings, MediaItem, UserRole } from '../types';
 import { sanitizeEntryForFirestore } from '../utils/imageCompressor';
-import firebaseAppletConfig from '../../firebase-applet-config.json';
 
 export enum OperationType {
   CREATE = 'create',
@@ -49,25 +49,35 @@ export interface FirestoreErrorInfo {
 const OWNER_ADMIN_EMAIL = 'kushanashvika216@gmail.com';
 
 const firebaseConfig = {
-  projectId: firebaseAppletConfig.projectId,
-  appId: firebaseAppletConfig.appId,
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseAppletConfig.apiKey,
-  authDomain: firebaseAppletConfig.authDomain,
-  firestoreDatabaseId: firebaseAppletConfig.firestoreDatabaseId,
-  storageBucket: firebaseAppletConfig.storageBucket,
-  messagingSenderId: firebaseAppletConfig.messagingSenderId,
-  measurementId: firebaseAppletConfig.measurementId || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCE77gqSboOqivCz-U0MPgPBbXi3P1VLs8',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'ash-wickramasinghe.firebaseapp.com',
+  databaseURL:
+    import.meta.env.VITE_FIREBASE_DATABASE_URL ||
+    'https://ash-wickramasinghe-default-rtdb.firebaseio.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'ash-wickramasinghe',
+  storageBucket:
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'ash-wickramasinghe.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1055246300348',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1055246300348:web:b486d841daada8a4490cb9',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-83HT3XXSCC',
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+export let analytics: ReturnType<typeof getAnalytics> | null = null;
+if (typeof window !== 'undefined') {
+  try {
+    analytics = getAnalytics(app);
+  } catch {
+    // Analytics may be disabled in privacy-restricted frames
+  }
+}
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+export const db = getFirestore(app);
 export const firestore = db;
 
 export function handleFirestoreError(
@@ -106,9 +116,29 @@ export async function signInWithGoogle(): Promise<{
   user: FirebaseUser;
   role: UserRole;
 }> {
-  const result = await signInWithPopup(auth, googleProvider);
-  const role = await resolveFirebaseUserRole(result.user);
-  return { user: result.user, role };
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const role = await resolveFirebaseUserRole(result.user);
+    return { user: result.user, role };
+  } catch (err) {
+    const code = (err as { code?: string })?.code || '';
+    if (code === 'auth/unauthorized-domain') {
+      throw new Error(
+        'This preview domain is not yet allowlisted in Firebase Auth -> Settings -> Authorized domains. Use your Diary PIN to sign in here, or add this domain in Firebase Console.'
+      );
+    }
+    if (code === 'auth/popup-blocked') {
+      throw new Error(
+        'Sign-in popup was blocked by your browser. Allow popups or sign in with your Diary PIN.'
+      );
+    }
+    if (code === 'auth/operation-not-allowed') {
+      throw new Error(
+        'Google Sign-In is disabled in this Firebase project. Enable Google in Firebase Authentication -> Sign-in method, or use your Diary PIN.'
+      );
+    }
+    throw err;
+  }
 }
 
 export async function signOutFirebase(): Promise<void> {

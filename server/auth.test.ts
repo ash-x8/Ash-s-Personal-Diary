@@ -10,6 +10,7 @@ import {
   claimInitialVault,
   resetVaultForTesting,
   getVaultSetupStatus,
+  updateVaultPins,
 } from './vaultStore.ts';
 import { sanitizeEntryForRole, sanitizeChapterForRole } from './db.ts';
 import type { DiaryEntry, DiaryChapter } from '../src/types/index.ts';
@@ -50,6 +51,15 @@ describe('Vault Setup & PIN Authentication', () => {
     assert.equal(getVaultSetupStatus().needsSetup, false);
     assert.equal(verifyPin('EnvEditorSecret'), 'EDITOR');
     assert.equal(verifyPin('EnvReaderSecret'), 'READER');
+  });
+
+  it('allows updated vault hashes to supersede stale env secrets', () => {
+    process.env.EDITOR_ACCESS_CODE = 'StaleEditor';
+    process.env.READER_ACCESS_CODE = 'NewAdminCode';
+    updateVaultPins('NewAdminCode', 'NewReaderCode');
+    assert.equal(verifyPin('NewAdminCode'), 'EDITOR');
+    assert.equal(verifyPin('NewReaderCode'), 'READER');
+    assert.equal(verifyPin('StaleEditor'), null);
   });
 });
 
