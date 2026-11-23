@@ -2,48 +2,195 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isEditorWrite() {
-      return request.resource.data.get('_editorKey', '') == 'ash-diary-secure-editor-session-2026'
-        || request.auth != null;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    function isValidEntry() {
-      return request.resource.data.get('title', '') is string
-        && request.resource.data.get('content', '') is string
-        && request.resource.data.get('date', '') is string
-        && request.resource.data.get('status', 'draft') in ['draft', 'published'];
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
 
-    match /diary_chapters/{chapterId} {
-      allow read, write: if true;
+    function isBootstrappedAdmin() {
+      return isVerified() && request.auth.token.email == 'kushanashvika216@gmail.com';
     }
 
-    match /diary_pages/{pageId} {
-      allow read, write: if true;
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
-    match /entries/{entryId} {
-      // Readers and clients can read entries
-      allow read: if true;
-
-      // Editor operations: validated by editor session key or auth
-      allow create: if isEditorWrite() && isValidEntry();
-      allow update: if isEditorWrite();
-      allow delete: if true;
+    function isAuthorizedReader() {
+      return isAdmin()
+        || (isVerified() && exists(/databases/$(database)/documents/readers/$(request.auth.uid)));
     }
 
-    match /settings/{docId} {
-      allow read: if true;
-      allow write: if true;
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    match /media/{mediaId} {
-      allow read: if true;
-      allow write: if true;
+    function incoming() {
+      return request.resource.data;
     }
 
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidChapter(data) {
+      return data.keys().hasAll(['chapterTitle', 'rawContent', 'status'])
+        && data.keys().hasOnly([
+          'id', 'chapterTitle', 'description', 'rawContent', 'date', 'mood',
+          'location', 'tags', 'coverImage', 'gallery', 'status', 'order',
+          'pageOrder', 'isSecret', 'securityKey', 'securityHint', 'secretPasscode',
+          'secretHint', 'ownerUid', 'createdAt', 'updatedAt'
+        ])
+        && data.chapterTitle is string && data.chapterTitle.size() >= 1 && data.chapterTitle.size() <= 200
+        && data.rawContent is string && data.rawContent.size() <= 900000
+        && data.status in ['draft', 'published']
+        && (!('description' in data) || (data.description is string && data.description.size() <= 500))
+        && (!('date' in data) || (data.date is string && data.date.size() <= 32))
+        && (!('mood' in data) || (data.mood is string && data.mood.size() <= 64))
+        && (!('location' in data) || (data.location is string && data.location.size() <= 120))
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 25 && (data.tags.size() == 0 || data.tags[0] is string)))
+        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 350000))
+        && (!('gallery' in data) || (data.gallery is list && data.gallery.size() <= 20 && (data.gallery.size() == 0 || data.gallery[0] is string)))
+        && (!('order' in data) || data.order is number)
+        && (!('isSecret' in data) || data.isSecret is bool)
+        && (!('securityKey' in data) || (data.securityKey is string && data.securityKey.size() <= 128))
+        && (!('securityHint' in data) || (data.securityHint is string && data.securityHint.size() <= 300));
+    }
+
+    function isValidEntry(data) {
+      return data.keys().hasAll(['title', 'content', 'date', 'status'])
+        && data.keys().hasOnly([
+          'id', 'title', 'slug', 'content', 'date', 'mood', 'location', 'tags',
+          'coverImage', 'gallery', 'status', 'pageOrder', 'customPageNumber',
+          'chapterId', 'isSecret', 'securityKey', 'securityHint', 'secretPasscode',
+          'secretHint', 'ownerUid', 'createdAt', 'updatedAt', 'publishedAt'
+        ])
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.content is string && data.content.size() <= 900000
+        && data.date is string && data.date.size() <= 32
+        && data.status in ['draft', 'published']
+        && (!('slug' in data) || (data.slug is string && data.slug.size() <= 220))
+        && (!('mood' in data) || (data.mood is string && data.mood.size() <= 64))
+        && (!('location' in data) || (data.location is string && data.location.size() <= 120))
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 25 && (data.tags.size() == 0 || data.tags[0] is string)))
+        && (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 350000))
+        && (!('gallery' in data) || (data.gallery is list && data.gallery.size() <= 20 && (data.gallery.size() == 0 || data.gallery[0] is string)))
+        && (!('pageOrder' in data) || data.pageOrder is number)
+        && (!('customPageNumber' in data) || data.customPageNumber is number)
+        && (!('chapterId' in data) || (data.chapterId is string && data.chapterId.size() <= 128))
+        && (!('isSecret' in data) || data.isSecret is bool)
+        && (!('securityKey' in data) || (data.securityKey is string && data.securityKey.size() <= 128))
+        && (!('securityHint' in data) || (data.securityHint is string && data.securityHint.size() <= 300));
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasOnly([
+          'title', 'subtitle', 'coverText', 'authorName', 'coverImage',
+          'paperColor', 'typography', 'fontSize', 'soundEnabled', 'twoPageMode',
+          'mobileSwipeEnabled', 'theme', 'readingWidth', 'pageAnimationSpeed',
+          'autoPageTurn', 'reducedMotion', 'readerAccessEnabled',
+          'editorAccessEnabled', 'wordsPerPage', 'lastUpdated', 'updatedAt'
+        ])
+        && (!('title' in data) || (data.title is string && data.title.size() <= 160))
+        && (!('subtitle' in data) || (data.subtitle is string && data.subtitle.size() <= 160))
+        && (!('coverText' in data) || (data.coverText is string && data.coverText.size() <= 160))
+        && (!('authorName' in data) || (data.authorName is string && data.authorName.size() <= 120))
+        && (!('wordsPerPage' in data) || (data.wordsPerPage is number && data.wordsPerPage >= 20 && data.wordsPerPage <= 1000));
+    }
+
+    function isValidMedia(data) {
+      return data.keys().hasAll(['id', 'url', 'originalName', 'mimeType', 'uploadedAt'])
+        && data.keys().hasOnly(['id', 'filename', 'url', 'originalName', 'size', 'mimeType', 'uploadedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.url is string && data.url.size() <= 450000
+        && data.originalName is string && data.originalName.size() <= 255
+        && data.mimeType is string && data.mimeType.size() <= 100
+        && data.uploadedAt is string && data.uploadedAt.size() <= 64
+        && (!('size' in data) || data.size is number);
+    }
+
+    // Default-deny safety net
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // Connection test probe (safe non-sensitive ping)
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Continuous Chapters
+    match /diary_chapters/{chapterId} {
+      allow get: if isValidId(chapterId) && (
+        isAdmin() ||
+        (isAuthorizedReader() && existing().status == 'published' && existing().get('isSecret', false) == false)
+      );
+      allow list: if isAdmin() || (
+        isAuthorizedReader() && resource.data.status == 'published' && resource.data.get('isSecret', false) == false
+      );
+      allow create: if isValidId(chapterId) && isAdmin() && isValidChapter(incoming());
+      allow update: if isValidId(chapterId) && isAdmin() && isValidChapter(incoming());
+      allow delete: if isValidId(chapterId) && isAdmin();
+    }
+
+    // Diary Pages / Entries
+    match /diary_pages/{pageId} {
+      allow get: if isValidId(pageId) && (
+        isAdmin() ||
+        (isAuthorizedReader() && existing().status == 'published' && existing().get('isSecret', false) == false)
+      );
+      allow list: if isAdmin() || (
+        isAuthorizedReader() && resource.data.status == 'published' && resource.data.get('isSecret', false) == false
+      );
+      allow create: if isValidId(pageId) && isAdmin() && isValidEntry(incoming());
+      allow update: if isValidId(pageId) && isAdmin() && isValidEntry(incoming());
+      allow delete: if isValidId(pageId) && isAdmin();
+    }
+
+    // Legacy Entries mirror
+    match /entries/{entryId} {
+      allow get: if isValidId(entryId) && (
+        isAdmin() ||
+        (isAuthorizedReader() && existing().status == 'published' && existing().get('isSecret', false) == false)
+      );
+      allow list: if isAdmin() || (
+        isAuthorizedReader() && resource.data.status == 'published' && resource.data.get('isSecret', false) == false
+      );
+      allow create: if isValidId(entryId) && isAdmin() && isValidEntry(incoming());
+      allow update: if isValidId(entryId) && isAdmin() && isValidEntry(incoming());
+      allow delete: if isValidId(entryId) && isAdmin();
+    }
+
+    // Global Settings
+    match /settings/{docId} {
+      allow get: if isValidId(docId) && isAuthorizedReader();
+      allow list: if false;
+      allow create, update: if isValidId(docId) && isAdmin() && isValidSettings(incoming());
+      allow delete: if false;
+    }
+
+    // Media Archive
+    match /media/{mediaId} {
+      allow get: if isValidId(mediaId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(mediaId) && isAdmin() && isValidMedia(incoming());
+      allow delete: if isValidId(mediaId) && isAdmin();
+    }
+
+    // Role Access Lists (Admin only)
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow write: if isValidId(uid) && isAdmin();
+    }
+
+    match /readers/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow write: if isValidId(uid) && isAdmin();
     }
   }
 }

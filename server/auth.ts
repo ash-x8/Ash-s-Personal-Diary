@@ -1,123 +1,197 @@
 import crypto from 'crypto';
-import { Request, Response, NextFunction } from 'express';
-import { UserRole } from '../src/types/index.ts';
+import type { Request, Response, NextFunction } from 'express';
+import type { UserRole } from '../src/types/index.ts';
+import { verifyAccessPin } from './vaultStore.ts';
 
-// Access codes configured securely server-side
-const EDITOR_CODE = process.env.EDITOR_ACCESS_CODE || '0704';
-const READER_CODE = process.env.READER_ACCESS_CODE || '0422';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'ash_diary_secure_hmac_secret_2026_x8';
+export type { UserRole };
 
-export interface TokenPayload {
-  role: UserRole;
-  createdAt: number;
-  expiresAt: number;
+export interface AuthRequest extends Request {
+  userRole?: UserRole;
+  sessionJti?: string;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        role: UserRole;
-      };
-    }
+export const AUTH_COOKIE_NAME = 'ash_diary_session';
+
+const EPHEMERAL_FALLBACK_SECRET = crypto.randomBytes(32).toString('hex');
+
+function getSessionSecret(): string {
+  const configured = (process.env.SESSION_SECRET || '').trim();
+  return configured || EPHEMERAL_FALLBACK_SECRET;
+}
+
+interface TokenPayload {
+  role: UserRole;
+  jti: string;
+  iat: number;
+  exp: number;
+}
+
+// Per-session unlocked secret page tracking in server memory (never exposed to client storage)
+const sessionUnlockedIds = new Map<string, Set<string>>();
+
+export function getUnlockedIdsForSession(jti?: string): Set<string> {
+  if (!jti) return new Set();
+  return sessionUnlockedIds.get(jti) || new Set();
+}
+
+export function grantUnlockedIdForSession(jti: string | undefined, targetId: string): void {
+  if (!jti || !targetId) return;
+  let set = sessionUnlockedIds.get(jti);
+  if (!set) {
+    set = new Set<string>();
+    sessionUnlockedIds.set(jti, set);
+  }
+  set.add(targetId);
+}
+
+export function clearUnlockedSession(jti?: string): void {
+  if (jti) {
+    sessionUnlockedIds.delete(jti);
   }
 }
 
-/**
- * Creates an HMAC-SHA256 signed session token.
- */
-export function createSessionToken(role: UserRole): string {
+export function verifyPin(pin: string): UserRole | null {
+  return verifyAccessPin(pin);
+}
+
+export function createAuthToken(role: UserRole): string {
   const payload: TokenPayload = {
     role,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
+    jti: crypto.randomBytes(16).toString('hex'),
+    iat: Date.now(),
+    exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
   };
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64url');
   const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
+    .createHmac('sha256', getSessionSecret())
     .update(payloadB64)
     .digest('base64url');
   return `${payloadB64}.${signature}`;
 }
 
-/**
- * Verifies the token and returns the payload or null.
- */
-export function verifySessionToken(token: string): TokenPayload | null {
-  try {
-    const [payloadB64, signature] = token.split('.');
-    if (!payloadB64 || !signature) return null;
+export function verifyAuthTokenPayload(token: string): TokenPayload | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
 
+  const [payloadB64, signature] = parts;
+  if (!payloadB64 || !signature) return null;
+
+  try {
     const expectedSig = crypto
-      .createHmac('sha256', SESSION_SECRET)
+      .createHmac('sha256', getSessionSecret())
       .update(payloadB64)
       .digest('base64url');
 
-    const sigBuf = Buffer.from(signature);
-    const expectedBuf = Buffer.from(expectedSig);
+    const sigBuffer = Buffer.from(signature, 'utf-8');
+    const expectedBuffer = Buffer.from(expectedSig, 'utf-8');
 
-    // Timing-safe comparison requiring equal buffer lengths to prevent exceptions
-    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
-      return null;
-    }
+    if (sigBuffer.length !== expectedBuffer.length) return null;
+    if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) return null;
 
-    const payload: TokenPayload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8'));
-    if (Date.now() > payload.expiresAt) {
-      return null;
-    }
+    const decoded = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf-8')) as TokenPayload;
+    if (!decoded || typeof decoded !== 'object') return null;
+    if (!decoded.exp || Date.now() > decoded.exp) return null;
+    if (decoded.role !== 'EDITOR' && decoded.role !== 'READER') return null;
+    if (!decoded.jti) return null;
 
-    return payload;
+    return decoded;
   } catch {
     return null;
   }
 }
 
-/**
- * Validates the user code and assigns role.
- */
-export function validateAccessCode(code: string): UserRole | null {
-  if (!code || typeof code !== 'string') return null;
-  const trimmed = code.trim();
-  if (trimmed === EDITOR_CODE) return 'EDITOR';
-  if (trimmed === READER_CODE) return 'READER';
-  return null;
+export function verifyAuthToken(token: string): UserRole | null {
+  const payload = verifyAuthTokenPayload(token);
+  return payload ? payload.role : null;
+}
+
+export function extractTokenFromRequest(req: Request): string | undefined {
+  const cookieToken = req.cookies?.[AUTH_COOKIE_NAME] as string | undefined;
+  if (cookieToken) return cookieToken;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  return undefined;
+}
+
+export function buildCookieOptions(req: Request, maxAgeMs?: number): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'none' | 'lax';
+  path: string;
+  partitioned?: boolean;
+  maxAge?: number;
+} {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '');
+  const isHttps = req.secure || forwardedProto.includes('https') || process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: Boolean(isHttps),
+    sameSite: isHttps ? 'none' : 'lax',
+    path: '/',
+    ...(isHttps ? { partitioned: true } : {}),
+    ...(typeof maxAgeMs === 'number' ? { maxAge: maxAgeMs } : {}),
+  };
 }
 
 /**
- * Express middleware to authenticate session.
+ * CSRF protection for cookie-authenticated state-changing requests.
  */
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  let token = req.cookies?.diary_token;
-  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
-    token = req.headers.authorization.substring(7);
-  }
-
-  if (token) {
-    const verified = verifySessionToken(token);
-    if (verified) {
-      req.user = { role: verified.role };
-    }
-  }
-  next();
-}
-
-/**
- * Middleware ensuring at least Reader or Editor access.
- */
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) {
-    res.status(401).json({ error: 'Authentication required. Please unlock the diary.' });
+export function verifyMutationOrigin(req: Request, res: Response, next: NextFunction): void {
+  const method = req.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    next();
     return;
   }
+
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (origin && host) {
+    try {
+      const originHost = new URL(origin).host;
+      if (originHost !== host && !origin.startsWith('http://localhost') && !origin.startsWith('https://')) {
+        res.status(403).json({ error: 'Cross-origin request rejected.' });
+        return;
+      }
+      // Strict match when same-host expected
+      const allowedHostMatch = originHost === host;
+      if (!allowedHostMatch) {
+        res.status(403).json({ error: 'Origin mismatch.' });
+        return;
+      }
+    } catch {
+      res.status(403).json({ error: 'Invalid origin header.' });
+      return;
+    }
+  }
+
   next();
 }
 
-/**
- * Middleware ensuring strictly Editor access.
- */
-export function requireEditor(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.role !== 'EDITOR') {
-    res.status(403).json({ error: 'Forbidden: Editor access required.' });
+export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void {
+  const token = extractTokenFromRequest(req);
+  if (!token) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  const payload = verifyAuthTokenPayload(token);
+  if (!payload) {
+    res.status(401).json({ error: 'Invalid or expired session' });
+    return;
+  }
+
+  req.userRole = payload.role;
+  req.sessionJti = payload.jti;
+  next();
+}
+
+export function requireEditor(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (req.userRole !== 'EDITOR') {
+    res.status(403).json({ error: 'Editor permissions required' });
     return;
   }
   next();

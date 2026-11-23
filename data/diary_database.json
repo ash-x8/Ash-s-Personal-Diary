@@ -1,7 +1,27 @@
 {
+  "chapters": [
+    {
+      "id": "chapter-01",
+      "chapterTitle": "Volume I — Quiet Hours",
+      "description": "Late-night reflections, rain against the library awning, and the beginnings of the notebook.",
+      "date": "2026-09-04",
+      "mood": "Reflective",
+      "location": "Studio 8, High Street",
+      "tags": ["Origins", "Memories", "Night"],
+      "coverImage": "/images/chapter_midnight_study.jpg",
+      "gallery": [],
+      "status": "published",
+      "order": 1,
+      "isSecret": false,
+      "createdAt": "2026-09-04T22:15:00Z",
+      "updatedAt": "2026-09-04T22:15:00Z",
+      "rawContent": "<p>There is a peculiar quiet that descends upon the world past two in the morning. A silence so delicate that even the turning of a page feels like an intrusion.</p>\n<p>I have started this diary not to capture grand milestones, but to preserve the subtle fissures—the quiet hours that usually dissolve before sunrise. For years, thoughts lingered without a home, drifting between notebooks left half-filled in bedside drawers.</p>\n<blockquote>\"Some memories are meant to stay between pages, sheltered from the velocity of the outside world.\"</blockquote>\n<p>Here, the ink doesn't rush. The words are allowed to breathe. If you are reading this, you are holding the quietest parts of me.</p>"
+    }
+  ],
   "entries": [
     {
       "id": "entry-01",
+      "chapterId": "chapter-01",
       "title": "The Beginning",
       "slug": "the-beginning",
       "date": "2026-09-04",
@@ -12,10 +32,8 @@
         "Memories",
         "Beginning"
       ],
-      "coverImage": "https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=1200&q=80",
-      "gallery": [
-        "https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=800&q=80"
-      ],
+      "coverImage": "/images/chapter_midnight_study.jpg",
+      "gallery": [],
       "status": "published",
       "pageOrder": 1,
       "customPageNumber": 1,
@@ -26,6 +44,7 @@
     },
     {
       "id": "entry-02",
+      "chapterId": "chapter-01",
       "title": "A Strange Day",
       "slug": "a-strange-day",
       "date": "2026-09-06",
@@ -36,7 +55,7 @@
         "Wanderings",
         "Thoughts"
       ],
-      "coverImage": "https://images.unsplash.com/photo-1507842229458-5776306235e2?auto=format&fit=crop&w=1200&q=80",
+      "coverImage": "",
       "gallery": [],
       "status": "published",
       "pageOrder": 2,
@@ -48,6 +67,7 @@
     },
     {
       "id": "entry-03",
+      "chapterId": "chapter-01",
       "title": "Things I Never Said",
       "slug": "things-i-never-said",
       "date": "2026-09-08",
@@ -58,10 +78,8 @@
         "Echoes",
         "Night"
       ],
-      "coverImage": "https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&w=1200&q=80",
-      "gallery": [
-        "https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=800&q=80"
-      ],
+      "coverImage": "",
+      "gallery": [],
       "status": "published",
       "pageOrder": 3,
       "customPageNumber": 3,
@@ -72,6 +90,7 @@
     },
     {
       "id": "entry-04",
+      "chapterId": "chapter-01",
       "title": "A Quiet Night",
       "slug": "a-quiet-night",
       "date": "2026-09-11",
@@ -82,7 +101,7 @@
         "Night",
         "Silence"
       ],
-      "coverImage": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=1200&q=80",
+      "coverImage": "",
       "gallery": [],
       "status": "published",
       "pageOrder": 4,
@@ -94,6 +113,7 @@
     },
     {
       "id": "entry-05",
+      "chapterId": "chapter-01",
       "title": "Unfinished Thoughts on Autumn",
       "slug": "unfinished-thoughts-on-autumn",
       "date": "2026-09-12",
@@ -121,6 +141,7 @@
     "authorName": "ASH-X8",
     "paperColor": "classic",
     "typography": "garamond",
+    "fontSize": "normal",
     "soundEnabled": true,
     "twoPageMode": true,
     "mobileSwipeEnabled": true,
@@ -128,8 +149,10 @@
     "readingWidth": "normal",
     "pageAnimationSpeed": "normal",
     "autoPageTurn": false,
+    "reducedMotion": false,
     "readerAccessEnabled": true,
     "editorAccessEnabled": true,
+    "wordsPerPage": 100,
     "lastUpdated": "2026-09-11T18:24:21.435Z"
   },
   "media": []

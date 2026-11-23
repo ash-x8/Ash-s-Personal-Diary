@@ -1,23 +1,54 @@
 {
   "entities": {
-    "entries": {
-      "title": "Diary Entries",
-      "description": "Personal journal entries with rich text, moods, locations, tags, and publishing status",
+    "chapter": {
+      "title": "Diary Chapter",
+      "description": "Continuous chapter content in Ash's Personal Diary with metadata and optional secret protection",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "title": { "type": "string" },
-        "slug": { "type": "string" },
-        "content": { "type": "string" },
-        "date": { "type": "string" },
-        "mood": { "type": "string" },
-        "location": { "type": "string" },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "coverImage": { "type": "string" },
-        "gallery": { "type": "array", "items": { "type": "string" } },
+        "id": { "type": "string", "maxLength": 128 },
+        "chapterTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 500 },
+        "rawContent": { "type": "string", "maxLength": 900000 },
+        "date": { "type": "string", "maxLength": 32 },
+        "mood": { "type": "string", "maxLength": 64 },
+        "location": { "type": "string", "maxLength": 120 },
+        "tags": { "type": "array" },
+        "coverImage": { "type": "string", "maxLength": 350000 },
+        "gallery": { "type": "array" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "order": { "type": "number" },
+        "isSecret": { "type": "boolean" },
+        "securityKey": { "type": "string", "maxLength": 128 },
+        "securityHint": { "type": "string", "maxLength": 300 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["chapterTitle", "rawContent", "status"]
+    },
+    "entry": {
+      "title": "Diary Entry",
+      "description": "Individual diary page or entry with rich text, chapter link, metadata, and optional secret protection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 220 },
+        "content": { "type": "string", "maxLength": 900000 },
+        "date": { "type": "string", "maxLength": 32 },
+        "mood": { "type": "string", "maxLength": 64 },
+        "location": { "type": "string", "maxLength": 120 },
+        "tags": { "type": "array" },
+        "coverImage": { "type": "string", "maxLength": 350000 },
+        "gallery": { "type": "array" },
         "status": { "type": "string", "enum": ["draft", "published"] },
         "pageOrder": { "type": "number" },
         "customPageNumber": { "type": "number" },
+        "chapterId": { "type": "string", "maxLength": 128 },
+        "isSecret": { "type": "boolean" },
+        "securityKey": { "type": "string", "maxLength": 128 },
+        "securityHint": { "type": "string", "maxLength": 300 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" },
         "publishedAt": { "type": "string" }
@@ -26,40 +57,86 @@
     },
     "settings": {
       "title": "Diary Settings",
-      "description": "Diary visual, aesthetic, and typography settings",
+      "description": "Book appearance, theme, typography, reader behavior, and access settings",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "subtitle": { "type": "string" },
-        "coverText": { "type": "string" },
-        "authorName": { "type": "string" },
-        "paperColor": { "type": "string" },
-        "typography": { "type": "string" },
+        "title": { "type": "string", "maxLength": 160 },
+        "subtitle": { "type": "string", "maxLength": 160 },
+        "coverText": { "type": "string", "maxLength": 160 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "coverImage": { "type": "string", "maxLength": 350000 },
+        "paperColor": { "type": "string", "enum": ["classic", "clean", "dark"] },
+        "typography": { "type": "string", "enum": ["garamond", "cinzel", "classic"] },
+        "fontSize": { "type": "string", "enum": ["compact", "normal", "large"] },
         "soundEnabled": { "type": "boolean" },
         "twoPageMode": { "type": "boolean" },
         "mobileSwipeEnabled": { "type": "boolean" },
-        "theme": { "type": "string" },
-        "readingWidth": { "type": "string" },
-        "pageAnimationSpeed": { "type": "string" },
+        "theme": { "type": "string", "enum": ["dark", "light", "sepia"] },
+        "readingWidth": { "type": "string", "enum": ["normal", "wide", "compact"] },
+        "pageAnimationSpeed": { "type": "string", "enum": ["normal", "relaxed", "gentle"] },
         "autoPageTurn": { "type": "boolean" },
+        "reducedMotion": { "type": "boolean" },
         "readerAccessEnabled": { "type": "boolean" },
         "editorAccessEnabled": { "type": "boolean" },
-        "lastUpdated": { "type": "string" }
+        "wordsPerPage": { "type": "number" },
+        "lastUpdated": { "type": "string", "maxLength": 64 }
       }
     },
     "media": {
-      "title": "Media Items",
-      "description": "Uploaded diary photos and gallery assets",
+      "title": "Media Item",
+      "description": "Uploaded diary photographs and gallery assets",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "filename": { "type": "string" },
-        "url": { "type": "string" },
-        "originalName": { "type": "string" },
+        "id": { "type": "string", "maxLength": 128 },
+        "filename": { "type": "string", "maxLength": 255 },
+        "url": { "type": "string", "maxLength": 450000 },
+        "originalName": { "type": "string", "maxLength": 255 },
         "size": { "type": "number" },
-        "mimeType": { "type": "string" },
-        "uploadedAt": { "type": "string" }
-      }
+        "mimeType": { "type": "string", "maxLength": 100 },
+        "uploadedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "url", "originalName", "mimeType", "uploadedAt"]
+    },
+    "roleRecord": {
+      "title": "Access Role Record",
+      "description": "Authorized admin or reader identity record",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 254 },
+        "role": { "type": "string", "enum": ["EDITOR", "READER"] },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["role"]
+    }
+  },
+  "firestore": {
+    "/diary_chapters/{chapterId}": {
+      "schema": { "$ref": "#/entities/chapter" },
+      "description": "Continuous diary chapters collection"
+    },
+    "/diary_pages/{pageId}": {
+      "schema": { "$ref": "#/entities/entry" },
+      "description": "Diary entries and pages collection"
+    },
+    "/entries/{entryId}": {
+      "schema": { "$ref": "#/entities/entry" },
+      "description": "Legacy companion diary entries collection"
+    },
+    "/settings/{docId}": {
+      "schema": { "$ref": "#/entities/settings" },
+      "description": "Global diary configuration document (settings/general)"
+    },
+    "/media/{mediaId}": {
+      "schema": { "$ref": "#/entities/media" },
+      "description": "Uploaded diary photographs and media assets"
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/roleRecord" },
+      "description": "Authorized diary administrators"
+    },
+    "/readers/{uid}": {
+      "schema": { "$ref": "#/entities/roleRecord" },
+      "description": "Authorized diary readers"
     }
   }
 }

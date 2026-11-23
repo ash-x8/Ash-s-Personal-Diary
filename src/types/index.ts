@@ -9,10 +9,10 @@ export type EntryStatus = 'draft' | 'published';
 export interface DiaryChapter {
   id: string;
   chapterTitle: string;
+  description?: string;
   rawContent: string;
-  createdAt: any;
-  updatedAt: any;
-  // Companion metadata
+  createdAt: string | null;
+  updatedAt: string | null;
   date?: string;
   mood?: string;
   location?: string;
@@ -22,10 +22,11 @@ export interface DiaryChapter {
   status?: EntryStatus;
   order?: number;
   isSecret?: boolean;
+  isLocked?: boolean;
   securityKey?: string;
   securityHint?: string;
-  // Legacy alias compatibility
   secretPasscode?: string;
+  secretHint?: string;
 }
 
 /**
@@ -49,7 +50,7 @@ export interface PaginatedPage {
   gallery?: string[];
   status: EntryStatus;
   isSecret?: boolean;
-  securityKey?: string;
+  isLocked?: boolean;
   securityHint?: string;
 }
 
@@ -68,15 +69,14 @@ export interface DiaryEntry {
   pageOrder: number;
   customPageNumber?: number;
   isSecret?: boolean;
+  isLocked?: boolean;
   securityKey?: string;
   securityHint?: string;
-  // Legacy backwards-compatibility
   secretPasscode?: string;
   secretHint?: string;
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
-  // Chapter reference if converted
   chapterId?: string;
 }
 
@@ -88,6 +88,7 @@ export interface DiarySettings {
   coverImage?: string;
   paperColor: 'classic' | 'clean' | 'dark';
   typography: 'garamond' | 'cinzel' | 'classic';
+  fontSize?: 'compact' | 'normal' | 'large';
   soundEnabled: boolean;
   twoPageMode: boolean;
   mobileSwipeEnabled: boolean;
@@ -95,9 +96,10 @@ export interface DiarySettings {
   readingWidth: 'normal' | 'wide' | 'compact';
   pageAnimationSpeed: 'normal' | 'relaxed' | 'gentle';
   autoPageTurn: boolean;
+  reducedMotion?: boolean;
   readerAccessEnabled: boolean;
   editorAccessEnabled: boolean;
-  wordsPerPage: number; // Configurable word limit per page (default: 100)
+  wordsPerPage: number;
   lastUpdated: string;
 }
 
@@ -115,12 +117,24 @@ export interface DashboardStats {
   totalEntries: number;
   published: number;
   drafts: number;
+  secretCount: number;
+  chaptersCount: number;
   thisMonth: number;
   totalPages: number;
+  totalWords: number;
   lastUpdated: string;
 }
 
 export interface AuthSession {
   authenticated: boolean;
   role?: UserRole;
+  authMethod?: 'pin' | 'firebase';
+  userEmail?: string | null;
+  userName?: string | null;
+}
+
+export interface VaultSetupStatus {
+  needsSetup: boolean;
+  hasEnvSecrets: boolean;
+  readerConfigured: boolean;
 }

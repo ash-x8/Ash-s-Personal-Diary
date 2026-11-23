@@ -1,258 +1,211 @@
-import {
+import type {
   AuthSession,
   DashboardStats,
+  DiaryChapter,
   DiaryEntry,
   DiarySettings,
   MediaItem,
-  UserRole
-} from '../types/index';
-import { localDb } from './localDb';
-import {
-  createFirestoreEntry,
-  updateFirestoreEntry,
-  deleteFirestoreEntry,
-  reorderFirestoreEntries,
-  updateFirestoreSettings,
-  addFirestoreMedia,
-  deleteFirestoreMedia,
-  fetchAllEntriesFromFirestore,
-  fetchSettingsFromFirestore,
-  fetchMediaFromFirestore
-} from './firebase';
+  VaultSetupStatus,
+} from '../types';
 
 const API_BASE = '/api';
 
-class ApiClient {
-  private token: string | null = null;
+// Session token held in memory only (no localStorage usage)
+let memorySessionToken: string | null = null;
 
-  constructor() {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        this.token = localStorage.getItem('ash_diary_token');
-      }
-    } catch {}
-  }
-
-  public getToken(): string | null {
-    if (!this.token && typeof window !== 'undefined' && window.localStorage) {
-      this.token = localStorage.getItem('ash_diary_token');
-    }
-    return this.token;
-  }
-
-  public setToken(token: string | null) {
-    this.token = token;
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        if (token) {
-          localStorage.setItem('ash_diary_token', token);
-        } else {
-          localStorage.removeItem('ash_diary_token');
-        }
-      }
-    } catch {}
-  }
-
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const defaultHeaders: Record<string, string> = {};
-    if (!(options.body instanceof FormData)) {
-      defaultHeaders['Content-Type'] = 'application/json';
-    }
-
-    const currentToken = this.getToken();
-    if (currentToken) {
-      defaultHeaders['Authorization'] = `Bearer ${currentToken}`;
-    }
-
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers: {
-        ...defaultHeaders,
-        ...(options.headers as Record<string, string>)
-      },
-      credentials: 'include'
-    });
-
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      throw new Error('Server returned HTML (likely offline or static hosting)');
-    }
-
-    if (!response.ok) {
-      let errorMsg = 'Invalid request.';
-      try {
-        const errorData = await response.json();
-        errorMsg = errorData.error || errorMsg;
-      } catch {
-        errorMsg = response.statusText || errorMsg;
-      }
-      throw new Error(errorMsg);
-    }
-
-    return response.json();
-  }
-
-  // Auth
-  public async unlock(code: string): Promise<{ success: boolean; role: UserRole; token: string }> {
-    try {
-      const result = await this.request<{ success: boolean; role: UserRole; token: string }>('/auth/unlock', {
-        method: 'POST',
-        body: JSON.stringify({ code })
-      });
-
-      if (result && result.token) {
-        this.setToken(result.token);
-      }
-
-      // Mirror to local storage as fallback
-      try { localDb.unlock(code); } catch {}
-      return result;
-    } catch (err: any) {
-      if (err.message === 'Invalid access code.') {
-        throw err;
-      }
-      // If server returned 404, HTML, network error, or was on Vercel static deployment:
-      const localRes = localDb.unlock(code);
-      if (localRes.token) {
-        this.setToken(localRes.token);
-      }
-      return localRes;
-    }
-  }
-
-  public async getSession(): Promise<AuthSession> {
-    try {
-      const res = await this.request<AuthSession>('/auth/session');
-      if (res && res.authenticated) {
-        return res;
-      }
-      return localDb.getSession();
-    } catch {
-      return localDb.getSession();
-    }
-  }
-
-  public async lock(): Promise<{ success: boolean }> {
-    try {
-      await this.request<{ success: boolean }>('/auth/lock', {
-        method: 'POST'
-      });
-    } catch {}
-    this.setToken(null);
-    localDb.lock();
-    return { success: true };
-  }
-
-  // Entries
-  public async getEntries(): Promise<DiaryEntry[]> {
-    try {
-      const fsEntries = await fetchAllEntriesFromFirestore();
-      if (fsEntries && fsEntries.length > 0) return fsEntries;
-      return await this.request<DiaryEntry[]>('/entries');
-    } catch {
-      return localDb.getEntries();
-    }
-  }
-
-  public async getEntry(id: string): Promise<DiaryEntry> {
-    try {
-      return await this.request<DiaryEntry>(`/entries/${id}`);
-    } catch {
-      return localDb.getEntry(id);
-    }
-  }
-
-  public async createEntry(data: Partial<DiaryEntry>): Promise<DiaryEntry> {
-    try {
-      return await createFirestoreEntry(data);
-    } catch {
-      return localDb.createEntry(data);
-    }
-  }
-
-  public async updateEntry(id: string, data: Partial<DiaryEntry>): Promise<DiaryEntry> {
-    try {
-      return await updateFirestoreEntry(id, data);
-    } catch {
-      return localDb.updateEntry(id, data);
-    }
-  }
-
-  public async deleteEntry(id: string): Promise<{ success: boolean }> {
-    try {
-      await deleteFirestoreEntry(id);
-      return { success: true };
-    } catch {
-      return localDb.deleteEntry(id);
-    }
-  }
-
-  public async reorderEntries(order: { id: string; pageOrder: number }[]): Promise<{ success: boolean }> {
-    try {
-      await reorderFirestoreEntries(order);
-      return { success: true };
-    } catch {
-      return localDb.reorderEntries(order);
-    }
-  }
-
-  // Settings
-  public async getSettings(): Promise<DiarySettings> {
-    try {
-      const fsSettings = await fetchSettingsFromFirestore();
-      if (fsSettings) return fsSettings;
-      return await this.request<DiarySettings>('/settings');
-    } catch {
-      return localDb.getSettings();
-    }
-  }
-
-  public async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
-    try {
-      return await updateFirestoreSettings(updates);
-    } catch {
-      return localDb.updateSettings(updates);
-    }
-  }
-
-  // Stats
-  public async getStats(): Promise<DashboardStats> {
-    try {
-      return await this.request<DashboardStats>('/stats');
-    } catch {
-      return localDb.getStats();
-    }
-  }
-
-  // Media
-  public async getMedia(): Promise<MediaItem[]> {
-    try {
-      const fsMedia = await fetchMediaFromFirestore();
-      if (fsMedia && fsMedia.length > 0) return fsMedia;
-      return await this.request<MediaItem[]>('/media');
-    } catch {
-      return localDb.getMedia();
-    }
-  }
-
-  public async uploadMedia(file: File): Promise<MediaItem> {
-    try {
-      const item = await localDb.uploadMedia(file);
-      await addFirestoreMedia(item);
-      return item;
-    } catch {
-      return await localDb.uploadMedia(file);
-    }
-  }
-
-  public async deleteMedia(id: string): Promise<{ success: boolean }> {
-    try {
-      await deleteFirestoreMedia(id);
-      return { success: true };
-    } catch {
-      return localDb.deleteMedia(id);
-    }
-  }
+export function setMemorySessionToken(token: string | null): void {
+  memorySessionToken = token;
 }
 
-export const api = new ApiClient();
+export function clearMemorySessionToken(): void {
+  memorySessionToken = null;
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'X-Requested-With': 'XMLHttpRequest',
+  };
+
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (memorySessionToken) {
+    headers['Authorization'] = `Bearer ${memorySessionToken}`;
+  }
+
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...headers,
+      ...((options.headers as Record<string, string>) || {}),
+    },
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(errBody.error || `Request failed (${res.status})`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  // === Auth & Vault ===
+  async getSetupStatus(): Promise<VaultSetupStatus> {
+    return request<VaultSetupStatus>('/auth/setup-status');
+  },
+
+  async setupVault(
+    editorPin: string,
+    readerPin?: string
+  ): Promise<AuthSession & { token?: string; setup?: VaultSetupStatus }> {
+    const data = await request<AuthSession & { token?: string; setup?: VaultSetupStatus }>(
+      '/auth/setup',
+      {
+        method: 'POST',
+        body: JSON.stringify({ editorPin, readerPin }),
+      }
+    );
+    if (data.token) setMemorySessionToken(data.token);
+    return data;
+  },
+
+  async unlock(pin: string): Promise<AuthSession & { token?: string }> {
+    const data = await request<AuthSession & { token?: string }>('/auth/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+    });
+    if (data.token) setMemorySessionToken(data.token);
+    return data;
+  },
+
+  async getSession(): Promise<AuthSession> {
+    return request<AuthSession>('/auth/session');
+  },
+
+  async lock(): Promise<void> {
+    clearMemorySessionToken();
+    await request('/auth/lock', { method: 'POST' });
+  },
+
+  async updatePins(editorPin?: string, readerPin?: string): Promise<{ ok: boolean; setup: VaultSetupStatus }> {
+    return request('/auth/update-pins', {
+      method: 'PUT',
+      body: JSON.stringify({ editorPin, readerPin }),
+    });
+  },
+
+  // === Chapters ===
+  async getChapters(): Promise<DiaryChapter[]> {
+    return request<DiaryChapter[]>('/chapters');
+  },
+
+  async createChapter(data: Partial<DiaryChapter>): Promise<DiaryChapter> {
+    return request<DiaryChapter>('/chapters', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateChapter(id: string, updates: Partial<DiaryChapter>): Promise<DiaryChapter> {
+    return request<DiaryChapter>(`/chapters/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteChapter(id: string): Promise<void> {
+    await request(`/chapters/${id}`, { method: 'DELETE' });
+  },
+
+  async reorderChapters(orderedIds: string[]): Promise<DiaryChapter[]> {
+    return request<DiaryChapter[]>('/chapters/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ orderedIds }),
+    });
+  },
+
+  async unlockChapter(id: string, key: string): Promise<DiaryChapter> {
+    return request<DiaryChapter>(`/chapters/${id}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({ key }),
+    });
+  },
+
+  // === Entries ===
+  async getEntries(): Promise<DiaryEntry[]> {
+    return request<DiaryEntry[]>('/entries');
+  },
+
+  async getEntry(id: string): Promise<DiaryEntry> {
+    return request<DiaryEntry>(`/entries/${id}`);
+  },
+
+  async createEntry(data: Partial<DiaryEntry>): Promise<DiaryEntry> {
+    return request<DiaryEntry>('/entries', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateEntry(id: string, data: Partial<DiaryEntry>): Promise<DiaryEntry> {
+    return request<DiaryEntry>(`/entries/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteEntry(id: string): Promise<void> {
+    await request(`/entries/${id}`, { method: 'DELETE' });
+  },
+
+  async reorderEntries(orderedIds: string[]): Promise<DiaryEntry[]> {
+    return request<DiaryEntry[]>('/entries/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ orderedIds }),
+    });
+  },
+
+  async unlockEntry(id: string, key: string): Promise<DiaryEntry> {
+    return request<DiaryEntry>(`/entries/${id}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({ key }),
+    });
+  },
+
+  // === Settings & Stats ===
+  async getSettings(): Promise<DiarySettings> {
+    return request<DiarySettings>('/settings');
+  },
+
+  async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
+    return request<DiarySettings>('/settings', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async getStats(): Promise<DashboardStats> {
+    return request<DashboardStats>('/stats');
+  },
+
+  // === Media ===
+  async getMedia(): Promise<MediaItem[]> {
+    return request<MediaItem[]>('/media');
+  },
+
+  async uploadMedia(file: File): Promise<MediaItem> {
+    const formData = new FormData();
+    formData.append('image', file);
+    return request<MediaItem>('/media/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async deleteMedia(id: string): Promise<void> {
+    await request(`/media/${id}`, { method: 'DELETE' });
+  },
+};

@@ -1,194 +1,204 @@
-import React, { useState, useRef } from 'react';
-import { Upload, X, Trash2, Check, Copy, Image as ImageIcon } from 'lucide-react';
-import { MediaItem } from '../types';
+import React, { useState } from 'react';
+import { Check, ImageOff, Plus, Trash2, Upload, X } from 'lucide-react';
+import { useDiary } from '../context/DiaryContext';
+import { useToast } from '../context/ToastContext';
+import { compressImage } from '../utils/imageCompressor';
+import { sanitizeMediaUrl } from '../utils/sanitize';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface MediaLibraryModalProps {
-  media: MediaItem[];
-  onUpload: (file: File) => Promise<MediaItem>;
-  onDelete: (id: string) => Promise<void>;
-  onSelect?: (url: string) => void;
+  open: boolean;
   onClose: () => void;
+  onSelectUrl?: (url: string) => void;
+  title?: string;
 }
 
-export const MediaLibraryModal: React.FC<MediaLibraryModalProps> = ({
-  media,
-  onUpload,
-  onDelete,
-  onSelect,
-  onClose
-}) => {
-  const [isUploading, setIsUploading] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export function MediaLibraryModal({
+  open,
+  onClose,
+  onSelectUrl,
+  title = 'Media Archive',
+}: MediaLibraryModalProps) {
+  const { media, uploadMedia, deleteMedia } = useDiary();
+  const { showToast } = useToast();
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file (PNG, JPG, WebP, GIF).');
-      return;
-    }
+  const [uploading, setUploading] = useState(false);
+  const [brokenIds, setBrokenIds] = useState<Set<string>>(new Set());
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-    setIsUploading(true);
+  if (!open) return null;
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setUploading(true);
     try {
-      await onUpload(file);
-    } catch (err: any) {
-      alert(err.message || 'Failed to upload image.');
+      const compressed = await compressImage(file, {
+        maxDimension: 1200,
+        quality: 0.8,
+        maxSizeBytes: 180 * 1024,
+      });
+
+      const blob = await fetch(compressed.dataUrl).then((r) => r.blob());
+      const compressedFile = new File(
+        [blob],
+        file.name.replace(/\.[^.]+$/, '.jpg'),
+        { type: 'image/jpeg' }
+      );
+
+      const saved = await uploadMedia(compressedFile);
+      showToast('Photograph uploaded to archive.', 'success');
+      if (onSelectUrl) {
+        onSelectUrl(saved.url);
+        onClose();
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to upload image.', 'error');
     } finally {
-      setIsUploading(false);
+      setUploading(false);
     }
   };
 
-  const handleCopy = (url: string, id: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    try {
+      await deleteMedia(deleteTargetId);
+      showToast('Image removed from archive.', 'info');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Delete failed.', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteTargetId(null);
+    }
   };
 
   return (
-    <div 
+    <div
       role="dialog"
-      aria-label="Media Library"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      onClick={onClose}
     >
-      <div className="w-full max-w-3xl bg-[#13131a] border border-[#2e2d3d] rounded-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#252433] mb-5">
-          <div className="flex items-center gap-2.5">
-            <ImageIcon className="w-5 h-5 text-[#d4af37]" />
-            <div>
-              <h3 className="font-cinzel text-base tracking-[0.18em] uppercase text-[#f5ebd7] font-semibold">
-                Private Media Archive
-              </h3>
-              <p className="text-xs text-[#827d72] font-serif-book italic">
-                Photographs and illustrations preserved in Ash's vault
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-[#8f887b] hover:text-[#f5ebd7] transition-colors rounded-lg cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Drag & Drop Upload Area */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors mb-5 ${
-            dragActive 
-              ? 'border-[#d4af37] bg-[#d4af37]/10' 
-              : 'border-[#38374a] hover:border-[#d4af37]/60 bg-[#191924]/60'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
-          <div className="flex flex-col items-center justify-center gap-2">
-            <div className="w-10 h-10 rounded-full bg-[#272636] flex items-center justify-center text-[#d4af37]">
-              <Upload className="w-5 h-5" />
-            </div>
-            <div className="text-sm font-medium text-[#ded8cc]">
-              {isUploading ? "Preserving photograph into memory…" : "Drag & drop photograph here, or click to browse"}
-            </div>
-            <p className="text-[11px] text-[#716c60]">
-              Supports WebP, PNG, JPEG up to 10MB
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-3xl max-h-[88vh] flex flex-col rounded-xl border border-[#252a38] bg-[#111319] text-[#e8e6e3] shadow-2xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between border-b border-[#1e222d] px-6 py-4">
+          <div>
+            <h2 className="font-serif-title text-lg font-semibold text-[#f2efe9]">{title}</h2>
+            <p className="text-xs text-[#8e929b] tabular-nums">
+              {media.length} archived photographs
             </p>
           </div>
+          <div className="flex items-center gap-2.5">
+            <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-lg bg-[#c5a059] px-4 py-2 text-xs font-semibold text-[#0c0e13] hover:bg-[#d4b06a] transition-colors">
+              <Upload className="h-3.5 w-3.5" />
+              <span>{uploading ? 'Optimizing…' : 'Upload Photo'}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={handleFileChange}
+                disabled={uploading}
+                className="sr-only"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close media modal"
+              className="rounded-lg p-2 text-[#8e929b] hover:bg-white/5 hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Media Grid */}
-        <div className="flex-1 overflow-y-auto pr-1">
+        <div className="flex-1 overflow-y-auto p-6">
           {media.length === 0 ? (
-            <div className="py-12 text-center text-[#6e685c] font-serif-book italic text-sm">
-              No private photographs have been preserved yet.
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#2a2f3d] py-16 text-center">
+              <Plus className="h-7 w-7 text-[#c5a059] mb-2" />
+              <p className="text-sm font-medium text-[#d8d5ce]">No photographs uploaded yet</p>
+              <p className="mt-1 text-xs text-[#8e929b]">
+                Upload JPG, PNG, or WebP memories to attach them to chapters or entries.
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {media.map((item) => (
-                <div
-                  key={item.id}
-                  className="group relative rounded-lg border border-[#2f2e3d] bg-[#1a1924] overflow-hidden flex flex-col"
-                >
-                  <div className="aspect-video w-full overflow-hidden bg-black/40 relative">
-                    <img
-                      src={item.url}
-                      alt={item.originalName}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {media.map((item) => {
+                const safeUrl = sanitizeMediaUrl(item.url);
+                const failed = brokenIds.has(item.id) || !safeUrl;
+                return (
+                  <div
+                    key={item.id}
+                    className="group relative rounded-lg border border-[#242834] bg-[#0c0e13] overflow-hidden flex flex-col"
+                  >
+                    <div className="aspect-[4/3] w-full bg-[#161922] flex items-center justify-center overflow-hidden">
+                      {failed ? (
+                        <ImageOff className="h-6 w-6 text-[#686d7a]" />
+                      ) : (
+                        <img
+                          src={safeUrl}
+                          alt={item.originalName}
+                          referrerPolicy="no-referrer"
+                          onError={() => setBrokenIds((prev) => new Set(prev).add(item.id))}
+                          className="h-full w-full object-cover"
+                        />
+                      )}
+                    </div>
 
-                    {onSelect && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelect(item.url);
-                          onClose();
-                        }}
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1 text-xs text-[#e8c872] font-cinzel tracking-wider uppercase transition-opacity cursor-pointer font-semibold"
-                      >
-                        <Check className="w-4 h-4" /> Select
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="p-2 flex items-center justify-between text-[11px] text-[#858074]">
-                    <span className="truncate max-w-[100px]" title={item.originalName}>
-                      {item.originalName}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(item.url, item.id)}
-                        className="p-1 hover:text-[#d4af37] transition-colors rounded"
-                        title="Copy image URL"
-                      >
-                        {copiedId === item.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm('Delete this photograph from media library?')) {
-                            onDelete(item.id);
-                          }
-                        }}
-                        className="p-1 hover:text-rose-400 transition-colors rounded"
-                        title="Delete photograph"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center justify-between gap-2 p-2.5">
+                      <span className="truncate text-[11px] text-[#9ca1ab]">
+                        {item.originalName}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {onSelectUrl && safeUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectUrl(safeUrl);
+                              onClose();
+                            }}
+                            title="Use this image"
+                            aria-label="Select image"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#c5a059] text-[#0c0e13] hover:bg-[#d4b06a]"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTargetId(item.id)}
+                          title="Delete image"
+                          aria-label="Delete image"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#2a2f3d] text-[#9ca1ab] hover:border-[#d66363]/50 hover:text-[#e07b7b]"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="mt-4 pt-3 border-t border-[#252433] flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-[#201f2b] hover:bg-[#2b2a3a] text-xs font-cinzel uppercase tracking-wider text-[#d6d0c4] transition-colors cursor-pointer"
-          >
-            Close Archive
-          </button>
-        </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(deleteTargetId)}
+        title="Remove Photograph?"
+        description="This permanently deletes the image from the media archive. Entries already referencing it may no longer display the photo."
+        confirmLabel="Remove Photo"
+        destructive
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
-};
+}

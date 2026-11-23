@@ -1,4 +1,4 @@
-import { DiaryChapter, PaginatedPage } from '../types';
+import type { DiaryChapter, PaginatedPage } from '../types';
 
 /**
  * Counts words in text or HTML string.
@@ -6,7 +6,6 @@ import { DiaryChapter, PaginatedPage } from '../types';
  */
 export function countWords(textOrHtml: string): number {
   if (!textOrHtml) return 0;
-  // Strip HTML tags and entities
   const clean = textOrHtml
     .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
@@ -18,16 +17,11 @@ export function countWords(textOrHtml: string): number {
     .trim();
 
   if (!clean) return 0;
-
-  // Split by whitespace (works for Latin, Sinhala, numbers, punctuation)
-  const words = clean.split(/\s+/).filter(Boolean);
-  return words.length;
+  return clean.split(/\s+/).filter(Boolean).length;
 }
 
 /**
  * Splits continuous chapter HTML or plain text into discrete blocks.
- * If text contains block tags like <p>, <h3>, <blockquote>, <ul>, etc., splits by them.
- * Otherwise splits by newlines.
  */
 function extractBlocks(rawHtml: string): string[] {
   const trimmed = (rawHtml || '').trim();
@@ -35,7 +29,6 @@ function extractBlocks(rawHtml: string): string[] {
     return [];
   }
 
-  // If HTML contains standard block tags
   const blockRegex = /<(p|h1|h2|h3|h4|blockquote|ul|ol|div|figure|table)[^>]*>[\s\S]*?<\/\1>/gi;
   const matches = trimmed.match(blockRegex);
 
@@ -43,7 +36,6 @@ function extractBlocks(rawHtml: string): string[] {
     return matches;
   }
 
-  // Fallback: If no recognized block tags, split by double newlines or single newlines
   const lines = trimmed.split(/\n\s*\n/).filter(line => line.trim().length > 0);
   if (lines.length > 0) {
     return lines.map(line => `<p>${line.replace(/\n/g, '<br/>')}</p>`);
@@ -61,7 +53,6 @@ function splitLargeBlock(blockHtml: string, maxWords: number): string[] {
     return [blockHtml];
   }
 
-  // Extract raw text and tags
   const cleanText = blockHtml.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').trim();
   const wordTokens = cleanText.split(/\s+/).filter(Boolean);
 
@@ -85,11 +76,7 @@ function splitLargeBlock(blockHtml: string, maxWords: number): string[] {
 
 /**
  * Splits a chapter's raw continuous content into an array of PaginatedPage objects.
- * Dynamic pagination is computed on the fly based on wordsPerPage.
- * 
- * @param chapter The DiaryChapter object
- * @param wordsPerPage Configurable word limit per page (default: 100)
- * @param startingGlobalPage Global book page index offset
+ * Never attaches secret keys or passcodes to paginated output.
  */
 export function paginateChapter(
   chapter: DiaryChapter,
@@ -99,8 +86,10 @@ export function paginateChapter(
   const targetWords = wordsPerPage > 0 ? wordsPerPage : 100;
   const content = chapter.rawContent || '';
   const blocks = extractBlocks(content);
+  const isSecret = Boolean(chapter.isSecret || chapter.securityKey || chapter.secretPasscode);
+  const isLocked = Boolean(chapter.isLocked ?? (isSecret && !content.trim()));
+  const hint = chapter.securityHint || chapter.secretHint;
 
-  // If chapter is empty, return one placeholder page
   if (blocks.length === 0) {
     return [
       {
@@ -120,14 +109,13 @@ export function paginateChapter(
         coverImage: chapter.coverImage,
         gallery: chapter.gallery || [],
         status: chapter.status || 'published',
-        isSecret: chapter.isSecret,
-        securityKey: chapter.securityKey,
-        securityHint: chapter.securityHint
+        isSecret,
+        isLocked,
+        securityHint: hint
       }
     ];
   }
 
-  // Split oversized blocks first
   const normalizedBlocks: string[] = [];
   for (const block of blocks) {
     if (countWords(block) > targetWords) {
@@ -137,15 +125,12 @@ export function paginateChapter(
     }
   }
 
-  // Accumulate blocks into pages
   const pagesHtml: { html: string; wordCount: number }[] = [];
   let currentPageBlocks: string[] = [];
   let currentWords = 0;
 
   for (const block of normalizedBlocks) {
     const blockWords = countWords(block);
-
-    // If adding this block exceeds targetWords and we already have blocks on this page:
     if (currentWords + blockWords > targetWords && currentPageBlocks.length > 0) {
       pagesHtml.push({
         html: currentPageBlocks.join('\n'),
@@ -159,7 +144,6 @@ export function paginateChapter(
     }
   }
 
-  // Push remaining blocks
   if (currentPageBlocks.length > 0) {
     pagesHtml.push({
       html: currentPageBlocks.join('\n'),
@@ -183,12 +167,12 @@ export function paginateChapter(
     mood: chapter.mood,
     location: chapter.location,
     tags: chapter.tags || [],
-    coverImage: idx === 0 ? chapter.coverImage : undefined, // Hero cover image on first page of chapter
-    gallery: idx === totalPages - 1 ? chapter.gallery : undefined, // Gallery attachments on last page
+    coverImage: idx === 0 ? chapter.coverImage : undefined,
+    gallery: idx === totalPages - 1 ? chapter.gallery : undefined,
     status: chapter.status || 'published',
-    isSecret: chapter.isSecret,
-    securityKey: chapter.securityKey,
-    securityHint: chapter.securityHint
+    isSecret,
+    isLocked,
+    securityHint: hint
   }));
 }
 

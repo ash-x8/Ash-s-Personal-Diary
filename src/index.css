@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
@@ -6,12 +7,15 @@
     --font-display: 'Cinzel', 'Abhaya Libre', 'Noto Serif Sinhala', serif;
     --font-handwriting: 'Caveat', 'Noto Sans Sinhala', cursive;
     --font-sans: 'Plus Jakarta Sans', 'Noto Sans Sinhala', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html {
+    scroll-behavior: smooth;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #0d0d11;
-    color: #e2dfd7;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
@@ -23,8 +27,13 @@
   font-family: 'Cormorant Garamond', 'Abhaya Libre', 'Noto Serif Sinhala', 'Iskoola Pota', Georgia, serif;
 }
 
-.font-cinzel {
+.font-cinzel,
+.font-serif-title {
   font-family: 'Cinzel', 'Abhaya Libre', 'Noto Serif Sinhala', serif;
+}
+
+.font-sans-ui {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Sinhala', system-ui, -apple-system, sans-serif;
 }
 
 .font-handwriting {
@@ -33,6 +42,17 @@
 
 .font-sinhala {
   font-family: 'Abhaya Libre', 'Noto Serif Sinhala', 'Noto Sans Sinhala', 'Iskoola Pota', serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
 }
 
 /* 3D Book perspective */
@@ -91,21 +111,21 @@
 
 @keyframes dynamicShadowFront {
   0% { opacity: 0; }
-  40% { opacity: 0.55; }
-  50% { opacity: 0.7; }
+  40% { opacity: 0.5; }
+  50% { opacity: 0.65; }
   100% { opacity: 0; }
 }
 
 @keyframes dynamicShadowBack {
   0% { opacity: 0; }
-  50% { opacity: 0.7; }
-  70% { opacity: 0.4; }
+  50% { opacity: 0.65; }
+  70% { opacity: 0.35; }
   100% { opacity: 0; }
 }
 
 @keyframes castShadowUnder {
-  0% { opacity: 0.6; }
-  50% { opacity: 0.25; }
+  0% { opacity: 0.55; }
+  50% { opacity: 0.2; }
   100% { opacity: 0; }
 }
 
@@ -115,22 +135,22 @@
     opacity: 1;
   }
   50% {
-    transform: rotateY(-50deg) translateZ(20px);
+    transform: rotateY(-45deg) translateZ(16px);
     opacity: 0.85;
   }
   100% {
-    transform: rotateY(-110deg) translateZ(30px);
+    transform: rotateY(-100deg) translateZ(24px);
     opacity: 0;
   }
 }
 
 @keyframes mobileTurnPrev {
   0% {
-    transform: rotateY(-110deg) translateZ(30px);
+    transform: rotateY(-100deg) translateZ(24px);
     opacity: 0;
   }
   50% {
-    transform: rotateY(-50deg) translateZ(20px);
+    transform: rotateY(-45deg) translateZ(16px);
     opacity: 0.85;
   }
   100% {
@@ -139,81 +159,126 @@
   }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
 .anim-leaf-next {
-  animation: turnLeafNext 0.72s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  animation: turnLeafNext var(--turn-duration, 0.65s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: left center;
 }
 
 .anim-leaf-prev {
-  animation: turnLeafPrev 0.72s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  animation: turnLeafPrev var(--turn-duration, 0.65s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: right center;
 }
 
 .anim-shadow-front {
-  animation: dynamicShadowFront 0.72s ease-in-out forwards;
+  animation: dynamicShadowFront var(--turn-duration, 0.65s) ease-in-out forwards;
 }
 
 .anim-shadow-back {
-  animation: dynamicShadowBack 0.72s ease-in-out forwards;
+  animation: dynamicShadowBack var(--turn-duration, 0.65s) ease-in-out forwards;
 }
 
 .anim-cast-shadow {
-  animation: castShadowUnder 0.72s ease-out forwards;
+  animation: castShadowUnder var(--turn-duration, 0.65s) ease-out forwards;
 }
 
 .anim-mobile-next {
-  animation: mobileTurnNext 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  animation: mobileTurnNext var(--mobile-turn-duration, 0.45s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: left center;
 }
 
 .anim-mobile-prev {
-  animation: mobileTurnPrev 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  animation: mobileTurnPrev var(--mobile-turn-duration, 0.45s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: left center;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
 }
 
 /* Realistic paper shadow & depth */
 .paper-shadow-left {
-  box-shadow: 
-    inset -15px 0 25px -10px rgba(0, 0, 0, 0.15),
-    -10px 15px 35px rgba(0, 0, 0, 0.4),
+  box-shadow:
+    inset -15px 0 25px -10px rgba(0, 0, 0, 0.14),
+    -10px 15px 35px rgba(0, 0, 0, 0.35),
     -2px 0 8px rgba(0, 0, 0, 0.1);
 }
 
 .paper-shadow-right {
-  box-shadow: 
-    inset 15px 0 25px -10px rgba(0, 0, 0, 0.15),
-    10px 15px 35px rgba(0, 0, 0, 0.4),
+  box-shadow:
+    inset 15px 0 25px -10px rgba(0, 0, 0, 0.14),
+    10px 15px 35px rgba(0, 0, 0, 0.35),
     2px 0 8px rgba(0, 0, 0, 0.1);
 }
 
 .book-spine-crease {
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.3) 0%,
-    rgba(0, 0, 0, 0.15) 35%,
-    rgba(255, 255, 255, 0.05) 50%,
-    rgba(0, 0, 0, 0.15) 65%,
-    rgba(0, 0, 0, 0.3) 100%
+    rgba(0, 0, 0, 0.28) 0%,
+    rgba(0, 0, 0, 0.12) 35%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(0, 0, 0, 0.12) 65%,
+    rgba(0, 0, 0, 0.28) 100%
   );
-}
-
-/* Leather cover styling */
-.leather-texture {
-  background-color: #1a1615;
-  background-image: radial-gradient(circle at 50% 30%, rgba(212, 175, 55, 0.06) 0%, transparent 70%),
-                    linear-gradient(135deg, rgba(20, 18, 17, 0.95) 0%, rgba(12, 10, 10, 0.98) 100%);
-  box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.85),
-    0 0 0 1px rgba(212, 175, 55, 0.18),
-    inset 0 0 40px rgba(0, 0, 0, 0.8);
 }
 
 .gold-emboss {
   color: #d4af37;
-  text-shadow: 
-    0 1px 1px rgba(255, 255, 255, 0.25),
+  text-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.22),
     0 -1px 1px rgba(0, 0, 0, 0.9),
     0 0 12px rgba(212, 175, 55, 0.2);
+}
+
+/* Diary rich prose formatting */
+.diary-prose p {
+  margin-bottom: 0.85em;
+}
+.diary-prose h3,
+.diary-prose h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.25em;
+  margin: 1em 0 0.5em 0;
+}
+.diary-prose blockquote {
+  padding: 0.65rem 1rem;
+  margin: 0.9rem 0;
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  background: rgba(197, 160, 89, 0.06);
+  border-radius: 0.5rem;
+  font-style: italic;
+}
+.diary-prose ul,
+.diary-prose ol {
+  padding-left: 1.35rem;
+  margin: 0.75rem 0;
+}
+.diary-prose ul {
+  list-style-type: disc;
+}
+.diary-prose ol {
+  list-style-type: decimal;
+}
+.diary-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 0.75rem 0;
 }
 
 /* Custom scrollbar for diary reading */
@@ -229,15 +294,21 @@
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(180, 160, 130, 0.4);
+  background: rgba(180, 160, 130, 0.45);
 }
 
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-6px); }
-  40%, 80% { transform: translateX(6px); }
-}
-
-.animate-shake {
-  animation: shake 0.4s ease-in-out;
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .anim-leaf-next,
+  .anim-leaf-prev,
+  .anim-shadow-front,
+  .anim-shadow-back,
+  .anim-cast-shadow,
+  .anim-mobile-next,
+  .anim-mobile-prev,
+  .animate-fade-in,
+  .animate-shake {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

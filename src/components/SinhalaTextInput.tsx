@@ -1,75 +1,93 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-interface SinhalaTextInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface SinhalaTextInputProps {
   value: string;
-  onValueChange: (val: string) => void;
-  debounceMs?: number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+  rows?: number;
+  className?: string;
+  id?: string;
 }
 
-export const SinhalaTextInput: React.FC<SinhalaTextInputProps> = ({
+/**
+ * IME-composition-safe input & textarea for Sinhala / Unicode scripts.
+ * Defers parent state propagation until compositionend completes so multi-keystroke
+ * Sinhala conjuncts and kombuva vowel modifiers never get overwritten mid-stroke.
+ */
+export function SinhalaTextInput({
   value,
-  onValueChange,
-  debounceMs = 300,
+  onChange,
+  placeholder,
+  multiline = false,
+  rows = 3,
   className = '',
-  style = {},
-  ...props
-}) => {
-  const isComposing = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  id,
+}: SinhalaTextInputProps) {
+  const [localVal, setLocalVal] = useState(value || '');
+  const isComposingRef = useRef(false);
 
-  // Sync external value when input is NOT focused and not composing
   useEffect(() => {
-    if (inputRef.current && document.activeElement !== inputRef.current && !isComposing.current) {
-      inputRef.current.value = value;
+    if (!isComposingRef.current && value !== localVal) {
+      setLocalVal(value || '');
     }
   }, [value]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    // Immediate local reflection is handled natively by the input element
-    if (isComposing.current) return;
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      onValueChange(val);
-    }, debounceMs);
-  };
-
-  const handleCompositionStart = () => {
-    isComposing.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-  };
-
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
-    isComposing.current = false;
-    onValueChange(e.currentTarget.value);
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (!isComposing.current) {
-      onValueChange(e.currentTarget.value);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const next = e.target.value;
+    setLocalVal(next);
+    if (!isComposingRef.current) {
+      onChange(next);
     }
   };
 
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleCompositionEnd = (
+    e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    isComposingRef.current = false;
+    const finalVal = (e.target as HTMLInputElement | HTMLTextAreaElement).value;
+    setLocalVal(finalVal);
+    onChange(finalVal);
+  };
+
+  const sharedStyle: React.CSSProperties = {
+    direction: 'ltr',
+    unicodeBidi: 'plaintext',
+  };
+
+  if (multiline) {
+    return (
+      <textarea
+        id={id}
+        rows={rows}
+        value={localVal}
+        onChange={handleChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        placeholder={placeholder}
+        dir="ltr"
+        style={sharedStyle}
+        className={className}
+      />
+    );
+  }
+
   return (
     <input
-      ref={inputRef}
-      defaultValue={value}
-      dir="ltr"
-      style={{
-        direction: 'ltr',
-        textAlign: 'left',
-        unicodeBidi: 'plaintext',
-        ...style
-      }}
+      id={id}
+      type="text"
+      value={localVal}
       onChange={handleChange}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}
-      onBlur={handleBlur}
-      className={`text-left ltr ${className}`}
-      {...props}
+      placeholder={placeholder}
+      dir="ltr"
+      style={sharedStyle}
+      className={className}
     />
   );
-};
+}

@@ -1,587 +1,536 @@
-import React, { useState } from 'react';
-import { doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  BookOpen,
-  FileText,
-  Plus,
-  Image as ImageIcon,
-  Settings as SettingsIcon,
-  Lock,
-  Eye,
-  Calendar,
-  Smile,
-  Tag,
-  Trash2,
-  Edit3,
-  Search,
-  CheckCircle,
-  Clock,
+  ArrowDown,
+  ArrowUp,
   BookMarked,
-  Layers,
-  ArrowUpDown,
-  Sparkles,
-  ChevronUp,
-  ChevronDown,
+  BookOpen,
+  Edit3,
   FileDown,
-  Printer,
-  CheckSquare,
-  Square,
-  KeyRound
+  Image,
+  LayoutDashboard,
+  Lock,
+  Menu,
+  PenLine,
+  Plus,
+  Search,
+  Settings,
+  Shield,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { DiaryEntry, DiarySettings, DashboardStats, MediaItem } from '../types';
+import type { DiaryEntry } from '../types';
+import { useDiary } from '../context/DiaryContext';
+import { useToast } from '../context/ToastContext';
 import { EntryEditor } from './EntryEditor';
-import { MediaLibraryModal } from './MediaLibraryModal';
+import { ChapterManager } from './ChapterManager';
 import { SettingsPanel } from './SettingsPanel';
+import { MediaLibraryModal } from './MediaLibraryModal';
 import { PdfExportModal } from './PdfExportModal';
 import { SecretPageModal } from './SecretPageModal';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
-interface EditorDashboardProps {
-  entries: DiaryEntry[];
-  settings: DiarySettings;
-  stats: DashboardStats;
-  media: MediaItem[];
-  onAddPage?: () => Promise<DiaryEntry>;
-  onSaveEntry: (entryData: Partial<DiaryEntry>, publish: boolean, existingId?: string) => Promise<DiaryEntry | void>;
-  onDeleteEntry: (id: string) => Promise<void>;
-  onReorderEntries: (order: { id: string; pageOrder: number }[]) => Promise<void>;
-  onSaveSettings: (updates: Partial<DiarySettings>) => Promise<void>;
-  onUploadMedia: (file: File) => Promise<MediaItem>;
-  onDeleteMedia: (id: string) => Promise<void>;
-  onPreviewAsReader: () => void;
-  onLockDiary: () => void;
-}
+type DashboardTab =
+  | 'overview'
+  | 'entries'
+  | 'chapters'
+  | 'editor'
+  | 'vault'
+  | 'settings';
 
-type TabType = 'overview' | 'entries' | 'new-entry' | 'media' | 'settings';
+export function EditorDashboard() {
+  const navigate = useNavigate();
+  const {
+    entries,
+    chapters,
+    settings,
+    stats,
+    media,
+    lockDiary,
+    updateEntry,
+    deleteEntry,
+    reorderEntries,
+  } = useDiary();
+  const { showToast } = useToast();
 
-export const EditorDashboard: React.FC<EditorDashboardProps> = ({
-  entries,
-  settings,
-  stats,
-  media,
-  onAddPage,
-  onSaveEntry,
-  onDeleteEntry,
-  onReorderEntries,
-  onSaveSettings,
-  onUploadMedia,
-  onDeleteMedia,
-  onPreviewAsReader,
-  onLockDiary
-}) => {
-  const [currentTab, setCurrentTab] = useState<TabType>('overview');
+  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [editingEntry, setEditingEntry] = useState<DiaryEntry | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
-  const [sortBy, setSortBy] = useState<'order' | 'date-desc' | 'date-asc' | 'title'>('order');
-  const [showMediaModal, setShowMediaModal] = useState(false);
-  const [showPdfExportModal, setShowPdfExportModal] = useState(false);
-  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
-  const [pdfModalInitialIds, setPdfModalInitialIds] = useState<string[] | undefined>(undefined);
-  const [showSecretModal, setShowSecretModal] = useState(false);
-  const [secretModalEntry, setSecretModalEntry] = useState<DiaryEntry | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft' | 'secret'>('all');
 
-  // Filtered & sorted entries
-  const filteredEntries = entries
-    .filter((e) => {
-      if (filterStatus === 'published') return e.status === 'published';
-      if (filterStatus === 'draft') return e.status === 'draft';
-      return true;
-    })
-    .filter((e) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        e.title.toLowerCase().includes(q) ||
-        e.content.toLowerCase().includes(q) ||
-        (e.mood && e.mood.toLowerCase().includes(q)) ||
-        e.tags.some(t => t.toLowerCase().includes(q))
-      );
-    })
-    .sort((a, b) => {
-      if (sortBy === 'order') return (a.pageOrder || 0) - (b.pageOrder || 0);
-      if (sortBy === 'date-desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (sortBy === 'date-asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (sortBy === 'title') return a.title.localeCompare(b.title);
-      return 0;
-    });
+  const [mediaModalOpen, setMediaModalOpen] = useState(false);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [secretTarget, setSecretTarget] = useState<DiaryEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DiaryEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const handleStartCreate = async () => {
-    if (onAddPage) {
-      try {
-        const newPage = await onAddPage();
-        setEditingEntry(newPage);
-        setCurrentTab('new-entry');
-        return;
-      } catch (err) {
-        console.warn('Error creating dynamic page in Firestore:', err);
-      }
-    }
+  const filteredEntries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return [...entries]
+      .sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0))
+      .filter((entry) => {
+        if (statusFilter === 'published' && entry.status !== 'published') return false;
+        if (statusFilter === 'draft' && entry.status !== 'draft') return false;
+        if (statusFilter === 'secret' && !entry.isSecret) return false;
+        if (!q) return true;
+        return (
+          entry.title.toLowerCase().includes(q) ||
+          (entry.mood || '').toLowerCase().includes(q) ||
+          (entry.location || '').toLowerCase().includes(q) ||
+          entry.tags.some((t) => t.toLowerCase().includes(q))
+        );
+      });
+  }, [entries, searchQuery, statusFilter]);
+
+  const secretEntries = useMemo(() => entries.filter((e) => e.isSecret), [entries]);
+
+  const openNewEntry = () => {
     setEditingEntry(null);
-    setCurrentTab('new-entry');
+    setActiveTab('editor');
+    setMobileMenuOpen(false);
   };
 
-  const handleStartEdit = (entry: DiaryEntry) => {
+  const openEditEntry = (entry: DiaryEntry) => {
     setEditingEntry(entry);
-    setCurrentTab('new-entry');
+    setActiveTab('editor');
+    setMobileMenuOpen(false);
   };
 
-  const handleSaveFromEditor = async (data: Partial<DiaryEntry>, publish: boolean, existingId?: string) => {
-    const saved = await onSaveEntry(data, publish, existingId || editingEntry?.id);
-    setEditingEntry(null);
-    setCurrentTab('entries');
-    return saved;
-  };
-
-  const handleAutoSaveFromEditor = async (data: Partial<DiaryEntry>, publish: boolean, existingId?: string) => {
-    const saved = await onSaveEntry(data, publish, existingId || editingEntry?.id);
-    if (saved && !editingEntry) {
-      setEditingEntry(saved as DiaryEntry);
-    }
-    return saved;
-  };
-
-  const handleToggleStatus = async (entry: DiaryEntry) => {
+  const togglePublish = async (entry: DiaryEntry) => {
     const nextStatus = entry.status === 'published' ? 'draft' : 'published';
-    await onSaveEntry({ status: nextStatus }, nextStatus === 'published', entry.id);
-  };
-
-  const handleDeleteEntry = async (entryId: string) => {
     try {
-      // Delete directly from Firestore document reference
-      await deleteDoc(doc(db, "diary_pages", entryId));
-      await deleteDoc(doc(db, "entries", entryId)).catch(() => {});
-    } catch (error) {
-      console.error("Error deleting entry from Firestore:", error);
+      await updateEntry(entry.id, { status: nextStatus });
+      showToast(
+        nextStatus === 'published' ? 'Entry published to book.' : 'Entry moved to drafts.',
+        'info'
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Status update failed.', 'error');
     }
+  };
+
+  const moveEntry = async (idx: number, direction: -1 | 1) => {
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= filteredEntries.length) return;
+    const allSorted = [...entries].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
+    const currentItem = filteredEntries[idx];
+    const swapItem = filteredEntries[targetIdx];
+    const ids = allSorted.map((e) => e.id);
+    const posA = ids.indexOf(currentItem.id);
+    const posB = ids.indexOf(swapItem.id);
+    if (posA === -1 || posB === -1) return;
+    [ids[posA], ids[posB]] = [ids[posB], ids[posA]];
     try {
-      await onDeleteEntry(entryId);
-    } catch (error) {
-      console.error("Error syncing delete:", error);
+      await reorderEntries(ids);
+      showToast('Page order updated.', 'info');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Reorder failed.', 'error');
     }
   };
 
-  const handleMoveOrder = async (entry: DiaryEntry, direction: 'up' | 'down') => {
-    const sorted = [...entries].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-    const idx = sorted.findIndex(e => e.id === entry.id);
-    if (idx === -1) return;
-    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (targetIdx < 0 || targetIdx >= sorted.length) return;
-
-    // Swap positions
-    const temp = sorted[idx];
-    sorted[idx] = sorted[targetIdx];
-    sorted[targetIdx] = temp;
-
-    const newOrders = sorted.map((e, index) => ({
-      id: e.id,
-      pageOrder: index + 1
-    }));
-    await onReorderEntries(newOrders);
-  };
-
-  // PDF Export Handlers
-  const handleOpenPdfExport = (specificIds?: string[]) => {
-    if (specificIds && specificIds.length > 0) {
-      setPdfModalInitialIds(specificIds);
-    } else if (selectedEntryIds.size > 0) {
-      setPdfModalInitialIds(Array.from(selectedEntryIds));
-    } else {
-      // Default to all currently filtered entries or all entries
-      const fallbackIds = filteredEntries.length > 0 ? filteredEntries.map((e) => e.id) : entries.map((e) => e.id);
-      setPdfModalInitialIds(fallbackIds);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteEntry(deleteTarget.id);
+      showToast('Entry permanently deleted.', 'info');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Delete failed.', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
     }
-    setShowPdfExportModal(true);
   };
 
-  const handleToggleEntrySelect = (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setSelectedEntryIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const handleToggleSelectAllFiltered = () => {
-    const filteredIds = filteredEntries.map((e) => e.id);
-    const allSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedEntryIds.has(id));
-
-    setSelectedEntryIds((prev) => {
-      const next = new Set(prev);
-      if (allSelected) {
-        filteredIds.forEach((id) => next.delete(id));
-      } else {
-        filteredIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const handleClearSelection = () => {
-    setSelectedEntryIds(new Set());
-  };
-
-  const handleOpenSecretModal = (entry: DiaryEntry) => {
-    setSecretModalEntry(entry);
-    setShowSecretModal(true);
-  };
-
-  const handleSaveSecretSettings = async (
-    entryId: string,
-    isSecret: boolean,
-    securityKey: string,
-    hint: string
-  ) => {
-    const targetEntry = entries.find((e) => e.id === entryId);
-    if (!targetEntry) return;
-
-    await onSaveEntry(
-      {
-        ...targetEntry,
-        isSecret,
-        securityKey: isSecret ? securityKey : '',
-        secretPasscode: isSecret ? securityKey : '',
-        securityHint: isSecret ? hint : '',
-        secretHint: isSecret ? hint : ''
-      },
-      targetEntry.status === 'published',
-      entryId
-    );
-  };
-
-  const isAllFilteredSelected =
-    filteredEntries.length > 0 && filteredEntries.every((e) => selectedEntryIds.has(e.id));
+  const navItems: { id: DashboardTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" /> },
+    { id: 'entries', label: 'Diary Entries', icon: <BookOpen className="h-4 w-4" /> },
+    { id: 'chapters', label: 'Chapters', icon: <BookMarked className="h-4 w-4" /> },
+    { id: 'editor', label: 'Write Entry', icon: <PenLine className="h-4 w-4" /> },
+    { id: 'vault', label: 'Secret Vault', icon: <Shield className="h-4 w-4" /> },
+    { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> },
+  ];
 
   return (
-    <div 
-      id="editor-dashboard-root"
-      className="min-h-screen bg-[#0d0d14] text-[#e5e1d8] flex flex-col font-sans selection:bg-[#d4af37]/30 selection:text-[#fff]"
-    >
-      {/* Top Navigation Header */}
-      <header className="sticky top-0 z-40 bg-[#12121b]/95 backdrop-blur-md border-b border-[#242332] px-4 sm:px-8 py-3.5 flex items-center justify-between">
-        {/* Branding */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full overflow-hidden border border-[#d4af37]/60 shadow-md bg-black shrink-0">
-            <img
-              src="/logo.png"
-              alt="Ash's Personal Diary Logo"
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-          <div>
-            <h1 className="font-cinzel text-sm sm:text-base font-bold tracking-[0.2em] text-[#f5ebd7] uppercase">
-              {settings.title}
-            </h1>
-            <p className="text-[10px] font-cinzel tracking-[0.2em] text-[#d4af37] uppercase">
-              Private Editor Workshop
-            </p>
-          </div>
-        </div>
-
-        {/* Global Quick Actions */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div 
-            id="editor-firestore-status" 
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#171622] border border-[#2c2a3d] text-[11px]"
-            title="Real-time multi-device Firestore synchronization active"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-mono text-[10px] tracking-wider text-emerald-400/90 font-medium">Firestore Live</span>
+    <div className="min-h-screen bg-[#0b0c10] text-[#e8e6e3] flex flex-col">
+      {/* Top Studio Header */}
+      <header className="sticky top-0 z-30 border-b border-[#1c1f29] bg-[#0e1015]/95 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open studio navigation"
+              className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#242834] bg-[#141720] text-[#e8e6e3]"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="truncate font-serif-title text-sm sm:text-base font-semibold tracking-wide text-[#f2efe9]">
+                {settings.title} — Author Studio
+              </h1>
+              <p className="hidden sm:block text-[11px] text-[#8e929b]">
+                {settings.authorName} · Private Archive Workspace
+              </p>
+            </div>
           </div>
 
-          <button
-            type="button"
-            id="editor-preview-reader-btn"
-            onClick={onPreviewAsReader}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#201f2d] hover:bg-[#2e2c3f] text-[#e8c872] border border-[#4a4029] font-cinzel text-xs tracking-wider uppercase transition-colors cursor-pointer"
-            title="Read book exactly as authorized Readers see it"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Preview as Reader</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMediaModalOpen(true)}
+              className="hidden sm:inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#242834] bg-[#141720] px-3 text-xs text-[#d8d5ce] hover:border-[#c5a059]/40"
+            >
+              <Image className="h-3.5 w-3.5 text-[#c5a059]" />
+              <span>Media</span>
+            </button>
 
-          {/* Export PDF Header Button */}
-          <button
-            type="button"
-            id="editor-export-pdf-header-btn"
-            onClick={() => handleOpenPdfExport()}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#201f2d] hover:bg-[#2d2c3e] text-[#d4af37] hover:text-[#f5ebd7] border border-[#52462b] font-cinzel text-xs tracking-wider uppercase transition-all shadow-sm active:scale-95 cursor-pointer"
-            title="Export selected diary entries as a printable PDF manuscript"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export PDF</span>
-            {selectedEntryIds.size > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-[#d4af37] text-black text-[10px] font-bold">
-                {selectedEntryIds.size}
-              </span>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => setPdfModalOpen(true)}
+              className="hidden sm:inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#242834] bg-[#141720] px-3 text-xs text-[#d8d5ce] hover:border-[#c5a059]/40"
+            >
+              <FileDown className="h-3.5 w-3.5 text-[#c5a059]" />
+              <span>Export PDF</span>
+            </button>
 
-          <button
-            type="button"
-            id="editor-new-entry-btn"
-            onClick={handleStartCreate}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#8a7238] to-[#d4af37] hover:from-[#9c8240] hover:to-[#e3bd42] text-[#19140a] font-cinzel text-xs tracking-wider uppercase font-semibold transition-all shadow active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">New Entry</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => navigate('/reader')}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#c5a059] px-3.5 text-xs font-semibold text-[#0c0e13] hover:bg-[#d4b06a]"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              <span>Open Book</span>
+            </button>
 
-          <button
-            type="button"
-            id="editor-lock-btn"
-            onClick={onLockDiary}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1924] hover:bg-[#252433] text-[#9e978b] hover:text-[#f5ebd7] border border-[#313042] font-cinzel text-xs tracking-wider uppercase transition-colors cursor-pointer"
-            title="Lock diary vault and return to closed book"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Lock</span>
-          </button>
+            <button
+              type="button"
+              onClick={lockDiary}
+              aria-label="Lock diary"
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#242834] bg-[#141720] px-3 text-xs text-[#d8d5ce] hover:border-[#d66363]/50"
+            >
+              <Lock className="h-3.5 w-3.5 text-[#c5a059]" />
+              <span className="hidden md:inline">Seal</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Sub-Navigation Bar */}
-      <nav 
-        aria-label="Editor sections"
-        className="bg-[#101017] border-b border-[#201f2b] px-4 sm:px-8 flex items-center gap-2 overflow-x-auto text-xs font-cinzel tracking-wider uppercase"
-      >
-        <button
-          type="button"
-          onClick={() => { setCurrentTab('overview'); setEditingEntry(null); }}
-          className={`py-3 px-3.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-            currentTab === 'overview'
-              ? 'border-[#d4af37] text-[#d4af37] font-semibold'
-              : 'border-transparent text-[#8e887d] hover:text-[#ded8cc]'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" /> Dashboard
-        </button>
+      <div className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-4 py-6 sm:px-6">
+        {/* Desktop Sidebar */}
+        <aside className="hidden lg:flex w-60 shrink-0 flex-col justify-between">
+          <nav className="space-y-1">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (item.id === 'editor' && activeTab !== 'editor') {
+                    setEditingEntry(null);
+                  }
+                  setActiveTab(item.id);
+                }}
+                className={`flex w-full min-h-[42px] items-center gap-3 rounded-lg px-3.5 text-xs font-medium transition-colors ${
+                  activeTab === item.id
+                    ? 'bg-[#c5a059]/15 text-[#f2efe9] border border-[#c5a059]/35'
+                    : 'text-[#a0a4ad] hover:bg-white/[0.04] hover:text-[#e8e6e3] border border-transparent'
+                }`}
+              >
+                <span className={activeTab === item.id ? 'text-[#c5a059]' : ''}>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
 
-        <button
-          type="button"
-          onClick={() => { setCurrentTab('entries'); setEditingEntry(null); }}
-          className={`py-3 px-3.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-            currentTab === 'entries'
-              ? 'border-[#d4af37] text-[#d4af37] font-semibold'
-              : 'border-transparent text-[#8e887d] hover:text-[#ded8cc]'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" /> Diary Entries ({entries.length})
-        </button>
+          <div className="rounded-xl border border-[#20242f] bg-[#101218] p-4 space-y-2 text-xs">
+            <p className="font-medium text-[#f2efe9] tabular-nums">
+              {stats.totalWords.toLocaleString()} inscribed words
+            </p>
+            <p className="text-[#8e929b] tabular-nums">
+              {stats.published} published · {stats.drafts} drafts · {media.length} media
+            </p>
+          </div>
+        </aside>
 
-        <button
-          type="button"
-          onClick={() => { setCurrentTab('new-entry'); }}
-          className={`py-3 px-3.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-            currentTab === 'new-entry'
-              ? 'border-[#d4af37] text-[#d4af37] font-semibold'
-              : 'border-transparent text-[#8e887d] hover:text-[#ded8cc]'
-          }`}
-        >
-          <Plus className="w-3.5 h-3.5" /> {editingEntry ? 'Edit Entry' : 'New Entry'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { setShowMediaModal(true); }}
-          className="py-3 px-3.5 border-b-2 border-transparent text-[#8e887d] hover:text-[#ded8cc] transition-colors cursor-pointer flex items-center gap-1.5"
-        >
-          <ImageIcon className="w-3.5 h-3.5" /> Media Archive ({media.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { setCurrentTab('settings'); setEditingEntry(null); }}
-          className={`py-3 px-3.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-            currentTab === 'settings'
-              ? 'border-[#d4af37] text-[#d4af37] font-semibold'
-              : 'border-transparent text-[#8e887d] hover:text-[#ded8cc]'
-          }`}
-        >
-          <SettingsIcon className="w-3.5 h-3.5" /> Book Settings
-        </button>
-      </nav>
-
-      {/* Main Workspace Area */}
-      <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto">
-        {/* TAB 1: OVERVIEW */}
-        {currentTab === 'overview' && (
-          <div className="space-y-8 animate-fade-in">
-            {/* Stats Cards Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-[#8c8577]">
-                  Total Entries
-                </span>
-                <span className="font-serif-book text-3xl text-[#f5ebd7] font-bold mt-2">
-                  {stats.totalEntries}
-                </span>
-              </div>
-
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-emerald-400">
-                  Published
-                </span>
-                <span className="font-serif-book text-3xl text-emerald-300 font-bold mt-2">
-                  {stats.published}
-                </span>
-              </div>
-
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-amber-400">
-                  Private Drafts
-                </span>
-                <span className="font-serif-book text-3xl text-amber-300 font-bold mt-2">
-                  {stats.drafts}
-                </span>
-              </div>
-
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-[#8c8577]">
-                  This Month
-                </span>
-                <span className="font-serif-book text-3xl text-[#ded8cc] font-bold mt-2">
-                  {stats.thisMonth}
-                </span>
-              </div>
-
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-[#8c8577]">
-                  Book Spreads
-                </span>
-                <span className="font-serif-book text-3xl text-[#ded8cc] font-bold mt-2">
-                  {stats.published + 1}
-                </span>
-              </div>
-
-              <div className="bg-[#14141d] border border-[#272636] rounded-xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-cinzel uppercase tracking-[0.2em] text-[#8c8577]">
-                  Total Pages
-                </span>
-                <span className="font-serif-book text-3xl text-[#d4af37] font-bold mt-2">
-                  {stats.totalPages}
-                </span>
-              </div>
-            </div>
-
-            {/* Quick Actions and Recent Inscriptions */}
-            <div className="bg-[#13131c] border border-[#252433] rounded-2xl p-6">
-              <div className="flex items-center justify-between pb-4 border-b border-[#21202e] mb-5">
+        {/* Main Studio Workspace */}
+        <main className="min-w-0 flex-1">
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-cinzel text-base tracking-[0.18em] uppercase text-[#f5ebd7] font-semibold">
-                    Recent Inscriptions
-                  </h3>
-                  <p className="text-xs text-[#807a6f] font-serif-book italic">
-                    Most recently preserved thoughts in Ash's journal
+                  <h2 className="font-serif-title text-xl font-semibold text-[#f2efe9]">
+                    Archive Overview
+                  </h2>
+                  <p className="text-xs text-[#8e929b]">
+                    Manage chapters, entries, secret leaves, and print editions.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenPdfExport()}
-                    className="px-3 py-1 bg-[#201f2e] hover:bg-[#2c2b3e] text-[#d4af37] border border-[#4a4029] text-xs font-cinzel uppercase tracking-wider rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                    title="Export diary entries as a printable PDF"
-                  >
-                    <FileDown className="w-3 h-3" />
-                    <span>Export PDF</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentTab('entries')}
-                    className="text-xs font-cinzel uppercase text-[#d4af37] hover:underline cursor-pointer"
-                  >
-                    View All ({entries.length}) →
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={openNewEntry}
+                  className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#c5a059] px-4 text-xs font-semibold text-[#0c0e13] hover:bg-[#d4b06a]"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Write New Entry</span>
+                </button>
               </div>
 
-              {entries.length === 0 ? (
-                <div className="py-12 text-center text-[#8e8779] font-serif-book">
-                  <p className="text-sm italic">No diary entries found. Click + to create your first page.</p>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Entries', value: stats.totalEntries },
+                  { label: 'Published Leaves', value: stats.published },
+                  { label: 'Chapters', value: chapters.length },
+                  { label: 'Total Words', value: stats.totalWords.toLocaleString() },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    className="rounded-xl border border-[#242834] bg-[#101218] p-5"
+                  >
+                    <p className="text-[11px] uppercase tracking-wider text-[#8e929b]">
+                      {card.label}
+                    </p>
+                    <p className="mt-2 font-serif-title text-2xl font-semibold text-[#f2efe9] tabular-nums">
+                      {card.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border border-[#242834] bg-[#101218] p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-serif-title text-base font-semibold text-[#f2efe9]">
+                    Recent Diary Entries
+                  </h3>
                   <button
                     type="button"
-                    onClick={handleStartCreate}
-                    className="mt-3 px-4 py-1.5 bg-[#d4af37] hover:bg-[#e8c872] text-black font-cinzel text-xs uppercase tracking-wider rounded-lg transition-colors font-medium inline-flex items-center gap-1.5 cursor-pointer"
+                    onClick={() => setActiveTab('entries')}
+                    className="text-xs text-[#c5a059] hover:underline"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Create First Page
+                    View All
                   </button>
+                </div>
+
+                {entries.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-[#8e929b]">
+                    Begin your journal by writing your first entry.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-[#1c202b]">
+                    {entries.slice(0, 5).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex flex-wrap items-center justify-between gap-3 py-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            {entry.isSecret && <Lock className="h-3.5 w-3.5 text-[#c5a059]" />}
+                            <p className="truncate font-serif-book text-base font-semibold text-[#f2efe9]">
+                              {entry.title}
+                            </p>
+                          </div>
+                          <p className="text-xs text-[#8e929b] tabular-nums">
+                            {entry.date} · {entry.status === 'published' ? 'Published' : 'Draft'}
+                            {entry.mood ? ` · ${entry.mood}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditEntry(entry)}
+                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-[#262b38] px-3 text-xs text-[#e8e6e3] hover:border-[#c5a059]/40"
+                        >
+                          <Edit3 className="h-3.5 w-3.5 text-[#c5a059]" />
+                          <span>Edit</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'entries' && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-serif-title text-lg font-semibold text-[#f2efe9]">
+                  All Diary Entries
+                </h2>
+                <button
+                  type="button"
+                  onClick={openNewEntry}
+                  className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-[#c5a059] px-4 text-xs font-semibold text-[#0c0e13]"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>New Entry</span>
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8e929b]" />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter by title, mood, location, or tag…"
+                    className="w-full min-h-[42px] rounded-lg border border-[#242834] bg-[#101218] pl-10 pr-4 text-xs text-[#f2efe9] focus:border-[#c5a059] focus:outline-none"
+                  />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  className="min-h-[42px] rounded-lg border border-[#242834] bg-[#101218] px-3.5 text-xs text-[#e8e6e3]"
+                >
+                  <option value="all">All Entries ({entries.length})</option>
+                  <option value="published">Published ({stats.published})</option>
+                  <option value="draft">Drafts ({stats.drafts})</option>
+                  <option value="secret">Secret Vault ({secretEntries.length})</option>
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                {filteredEntries.map((entry, idx) => (
+                  <div
+                    key={entry.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-[#242834] bg-[#101218] p-4"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-[11px] text-[#8e929b] tabular-nums">
+                        <span>#{entry.pageOrder}</span>
+                        <span>·</span>
+                        <span>{entry.date}</span>
+                        <span>·</span>
+                        <span>{entry.status === 'published' ? 'Published' : 'Draft'}</span>
+                        {entry.mood && (
+                          <>
+                            <span>·</span>
+                            <span>{entry.mood}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        {entry.isSecret && <Lock className="h-3.5 w-3.5 text-[#c5a059]" />}
+                        <h3 className="truncate font-serif-book text-lg font-semibold text-[#f2efe9]">
+                          {entry.title}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveEntry(idx, -1)}
+                        aria-label="Move entry up"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#262b38] text-[#9ca1ab] hover:text-white disabled:opacity-30"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === filteredEntries.length - 1}
+                        onClick={() => moveEntry(idx, 1)}
+                        aria-label="Move entry down"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#262b38] text-[#9ca1ab] hover:text-white disabled:opacity-30"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => togglePublish(entry)}
+                        className="inline-flex h-9 items-center rounded-lg border border-[#262b38] px-3 text-xs text-[#d8d5ce] hover:border-[#c5a059]/40"
+                      >
+                        {entry.status === 'published' ? 'Unpublish' : 'Publish'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSecretTarget(entry)}
+                        aria-label="Configure secret lock"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#262b38] text-[#c5a059]"
+                      >
+                        <Lock className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditEntry(entry)}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#262b38] px-3 text-xs text-[#f2efe9] hover:border-[#c5a059]/40"
+                      >
+                        <Edit3 className="h-3.5 w-3.5 text-[#c5a059]" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(entry)}
+                        aria-label="Delete entry"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#262b38] text-[#9ca1ab] hover:border-[#d66363]/50 hover:text-[#e07b7b]"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'chapters' && <ChapterManager />}
+
+          {activeTab === 'editor' && (
+            <EntryEditor
+              entry={editingEntry}
+              onSaved={() => setActiveTab('entries')}
+              onCancel={() => setActiveTab('entries')}
+            />
+          )}
+
+          {activeTab === 'vault' && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="font-serif-title text-lg font-semibold text-[#f2efe9]">
+                  Private Secret Vault
+                </h2>
+                <p className="text-xs text-[#8e929b]">
+                  Passkey-protected leaves are redacted server-side for guest readers until verified.
+                </p>
+              </div>
+              {secretEntries.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[#262b38] bg-[#101218] p-12 text-center">
+                  <Shield className="mx-auto h-7 w-7 text-[#c5a059] mb-2" />
+                  <p className="text-sm text-[#e8e6e3]">No sealed entries yet</p>
+                  <p className="mt-1 text-xs text-[#8e929b]">
+                    Use the lock icon on any entry to seal it with a private passkey.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {entries.slice(0, 5).map((entry) => (
+                  {secretEntries.map((entry) => (
                     <div
                       key={entry.id}
-                      className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#191924] hover:bg-[#201f2f] transition-colors border border-[#2c2b3c]"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#242834] bg-[#101218] p-4"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-[#272638] flex items-center justify-center text-[#d4af37]">
-                          <BookMarked className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-serif-book text-base font-semibold text-[#f5ebd7]">
-                              {entry.title}
-                            </span>
-                            {entry.isSecret && (
-                              <span className="text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 flex items-center gap-1">
-                                <Lock className="w-2.5 h-2.5" /> Secret
-                              </span>
-                            )}
-                            <span
-                              className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full ${
-                                entry.status === 'published'
-                                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                                  : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
-                              }`}
-                            >
-                              {entry.status}
-                            </span>
-                          </div>
-                          <div className="text-xs text-[#787265] mt-0.5 flex items-center gap-2">
-                            <span>{entry.date}</span>
-                            {entry.mood && <span>• Mood: {entry.mood}</span>}
-                            <span>• Order #{entry.pageOrder}</span>
-                          </div>
-                        </div>
+                      <div>
+                        <p className="font-serif-book text-base font-semibold text-[#f2efe9]">
+                          {entry.title}
+                        </p>
+                        <p className="text-xs text-[#8e929b]">
+                          Hint: {entry.securityHint || entry.secretHint || 'None'}
+                        </p>
                       </div>
-
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleOpenSecretModal(entry)}
-                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                            entry.isSecret
-                              ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/40'
-                              : 'text-[#7d786d] hover:text-[#d4af37]'
-                          }`}
-                          title={entry.isSecret ? "Secret Page Locked (Configure Security Key & Hint)" : "Set Security Key for this page"}
+                          onClick={() => setSecretTarget(entry)}
+                          className="min-h-[38px] rounded-lg border border-[#262b38] px-3.5 text-xs text-[#e8e6e3]"
                         >
-                          <KeyRound className="w-3.5 h-3.5" />
+                          Manage Key
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleStartEdit(entry)}
-                          className="px-3 py-1 bg-[#282738] hover:bg-[#34334a] text-xs font-cinzel uppercase tracking-wider rounded text-[#ded8cc] transition-colors cursor-pointer flex items-center gap-1"
+                          onClick={() => openEditEntry(entry)}
+                          className="min-h-[38px] rounded-lg bg-[#c5a059] px-3.5 text-xs font-semibold text-[#0c0e13]"
                         >
-                          <Edit3 className="w-3 h-3" /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm(`Delete entry "${entry.title}"?`)) {
-                              handleDeleteEntry(entry.id);
-                            }
-                          }}
-                          className="p-1.5 hover:text-rose-400 transition-colors rounded text-[#7d786d] cursor-pointer"
-                          title="Delete entry"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          Open Editor
                         </button>
                       </div>
                     </div>
@@ -589,360 +538,121 @@ export const EditorDashboard: React.FC<EditorDashboardProps> = ({
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 2: ENTRIES MANAGEMENT */}
-        {currentTab === 'entries' && (
-          <div className="space-y-4 animate-fade-in">
-            {/* Filter and Search Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[#14141d] border border-[#272636] rounded-xl">
-              {/* Search */}
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-4 h-4 text-[#7d776a] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter entries by title, date, mood or tag…"
-                  className="w-full h-9 bg-[#0b0c10] border border-[#2d2c3c] focus:border-[#d4af37] rounded-lg pl-9 pr-3 text-xs text-[#ded8cc] placeholder-[#5a554a] focus:outline-none"
-                />
-              </div>
+          {activeTab === 'settings' && <SettingsPanel />}
+        </main>
+      </div>
 
-              {/* Status Filter */}
-              <div className="flex items-center gap-1 text-xs font-cinzel tracking-wider uppercase">
-                <button
-                  type="button"
-                  onClick={() => setFilterStatus('all')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    filterStatus === 'all' ? 'bg-[#d4af37] text-black font-semibold' : 'bg-[#1e1d29] text-[#a8a296]'
-                  }`}
-                >
-                  All ({entries.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterStatus('published')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    filterStatus === 'published' ? 'bg-[#d4af37] text-black font-semibold' : 'bg-[#1e1d29] text-[#a8a296]'
-                  }`}
-                >
-                  Published ({stats.published})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterStatus('draft')}
-                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                    filterStatus === 'draft' ? 'bg-[#d4af37] text-black font-semibold' : 'bg-[#1e1d29] text-[#a8a296]'
-                  }`}
-                >
-                  Drafts ({stats.drafts})
-                </button>
-              </div>
-
-              {/* Sort Selector */}
-              <div className="flex items-center gap-1.5 text-xs text-[#8c8577]">
-                <ArrowUpDown className="w-3.5 h-3.5" />
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="h-8 bg-[#0b0c10] border border-[#2d2c3c] rounded-lg px-2 text-xs text-[#ded8cc] focus:outline-none font-cinzel"
-                >
-                  <option value="order">Manual Book Order</option>
-                  <option value="date-desc">Newest First</option>
-                  <option value="date-asc">Oldest First</option>
-                  <option value="title">Title (A-Z)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Selection & Export Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-[#12111a] border border-[#252433] rounded-xl">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleToggleSelectAllFiltered}
-                  className="flex items-center gap-2 text-xs font-cinzel text-[#d4af37] hover:text-[#f5ebd7] transition-colors cursor-pointer"
-                >
-                  {isAllFilteredSelected ? (
-                    <CheckSquare className="w-4 h-4 text-[#d4af37]" />
-                  ) : (
-                    <Square className="w-4 h-4 text-[#5e584c]" />
-                  )}
-                  <span>{isAllFilteredSelected ? 'Deselect All' : 'Select All Filtered'}</span>
-                </button>
-
-                {selectedEntryIds.size > 0 && (
-                  <span className="text-xs text-[#8e8779] font-serif-book">
-                    ({selectedEntryIds.size} {selectedEntryIds.size === 1 ? 'entry' : 'entries'} selected)
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {selectedEntryIds.size > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleClearSelection}
-                    className="px-2.5 py-1 text-xs text-[#8e8779] hover:text-[#ded8cc] font-cinzel uppercase tracking-wider transition-colors cursor-pointer"
-                  >
-                    Clear Selection
-                  </button>
-                )}
-
-                {/* Main Export Selected to PDF Button */}
-                <button
-                  type="button"
-                  id="editor-export-selected-pdf-btn"
-                  onClick={() => handleOpenPdfExport()}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg font-cinzel text-xs uppercase tracking-wider transition-all cursor-pointer ${
-                    selectedEntryIds.size > 0
-                      ? 'bg-gradient-to-r from-[#8a7238] to-[#d4af37] hover:from-[#9c8240] hover:to-[#e3bd42] text-[#19140a] font-semibold shadow-md active:scale-95'
-                      : 'bg-[#1f1e2c] hover:bg-[#2b293d] text-[#d4af37] border border-[#4a4029]'
-                  }`}
-                  title="Export selected diary entries as a printable PDF"
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  <span>
-                    {selectedEntryIds.size > 0
-                      ? `Export Selected (${selectedEntryIds.size}) as PDF`
-                      : 'Export to Printable PDF'}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Entries List */}
-            {filteredEntries.length === 0 ? (
-              <div className="py-16 text-center text-[#8e8779] font-serif-book">
-                <p className="text-sm italic">No diary entries found. Click + to create your first page.</p>
-                <button
-                  type="button"
-                  onClick={handleStartCreate}
-                  className="mt-3 px-4 py-1.5 bg-[#d4af37] hover:bg-[#e8c872] text-black font-cinzel text-xs uppercase tracking-wider rounded-lg transition-colors font-medium inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Create First Page
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredEntries.map((entry) => {
-                  const isSelected = selectedEntryIds.has(entry.id);
-                  return (
-                    <div
-                      key={entry.id}
-                      className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                        isSelected
-                          ? 'bg-[#181724] border-[#4e442f]'
-                          : 'bg-[#14141d] border-[#272636] hover:border-[#38374a]'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3.5 flex-1 min-w-0">
-                        {/* Entry Row Checkbox */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleToggleEntrySelect(entry.id, e)}
-                          className="mt-1 text-[#d4af37] hover:opacity-80 transition-opacity cursor-pointer shrink-0"
-                          title={isSelected ? 'Deselect for PDF export' : 'Select for PDF export'}
-                          aria-label={isSelected ? 'Deselect for PDF export' : 'Select for PDF export'}
-                        >
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-[#d4af37]" />
-                          ) : (
-                            <Square className="w-4 h-4 text-[#4a475a] hover:text-[#8a8477]" />
-                          )}
-                        </button>
-
-                        <div className="space-y-1 flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-cinzel text-xs text-[#d4af37] font-semibold">
-                              #{entry.pageOrder}
-                            </span>
-                            <h4 className="font-serif-book text-lg font-semibold text-[#f5ebd7] truncate">
-                              {entry.title}
-                            </h4>
-                            {entry.isSecret && (
-                              <span className="text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 flex items-center gap-1 font-semibold">
-                                <Lock className="w-2.5 h-2.5" /> Secret Page
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleStatus(entry)}
-                              className={`text-[9px] font-cinzel uppercase px-2 py-0.5 rounded-full cursor-pointer transition-all hover:scale-105 active:scale-95 ${
-                                entry.status === 'published'
-                                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/60'
-                                  : 'bg-amber-950/60 text-amber-400 border border-amber-800/40 hover:bg-amber-900/60'
-                              }`}
-                              title="Click to toggle Published / Draft status (auto-saved)"
-                            >
-                              {entry.status}
-                            </button>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-[#857f73]">
-                            <span>{entry.date}</span>
-                            {entry.mood && <span>• Mood: {entry.mood}</span>}
-                            {entry.location && <span>• At: {entry.location}</span>}
-                            {entry.tags.length > 0 && (
-                              <span>• Tags: {entry.tags.join(', ')}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                        {/* Quick page ordering controls */}
-                        <div className="flex items-center bg-[#1a1924] border border-[#2b2a3a] rounded-lg p-0.5">
-                          <button
-                            type="button"
-                            onClick={() => handleMoveOrder(entry, 'up')}
-                            className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
-                            title="Move earlier in book"
-                          >
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMoveOrder(entry, 'down')}
-                            className="p-1 hover:bg-[#282738] hover:text-[#d4af37] text-[#8e877a] rounded transition-colors cursor-pointer"
-                            title="Move later in book"
-                          >
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Export single entry button */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPdfExport([entry.id])}
-                          className="p-2 rounded-lg bg-[#22212f] hover:bg-[#2d2b40] text-[#7a7467] hover:text-[#d4af37] transition-colors cursor-pointer"
-                          title="Export this entry to PDF"
-                        >
-                          <FileDown className="w-3.5 h-3.5" />
-                        </button>
-
-                        {/* Secret Passcode configuration button */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenSecretModal(entry)}
-                          className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                            entry.isSecret
-                              ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/40 hover:bg-[#d4af37]/25'
-                              : 'bg-[#22212f] hover:bg-[#2d2b40] text-[#7a7467] hover:text-[#d4af37]'
-                          }`}
-                          title={
-                            entry.isSecret
-                              ? "Protected by Security Key (Click to edit key & hint)"
-                              : "Set Security Key & Hint for this page"
-                          }
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(entry)}
-                          className="px-3.5 py-1.5 rounded-lg bg-[#22212f] hover:bg-[#2d2c3e] text-xs font-cinzel uppercase tracking-wider text-[#ded8cc] transition-colors flex items-center gap-1 cursor-pointer"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" /> Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm(`Delete entry "${entry.title}"?`)) {
-                              handleDeleteEntry(entry.id);
-                            }
-                          }}
-                          className="p-2 rounded-lg bg-[#22212f] hover:bg-rose-950/50 hover:text-rose-400 text-[#7a7467] transition-colors cursor-pointer"
-                          title="Delete entry"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 3: NEW / EDIT ENTRY */}
-        {currentTab === 'new-entry' && (
-          <EntryEditor
-            initialEntry={editingEntry}
-            wordsPerPage={settings.wordsPerPage || 100}
-            onSave={handleSaveFromEditor}
-            onAutoSave={handleAutoSaveFromEditor}
-            onCancel={() => { setEditingEntry(null); setCurrentTab('entries'); }}
-            onPreviewInBook={onPreviewAsReader}
-            mediaList={media}
-            onUploadMedia={onUploadMedia}
-            onDeleteMedia={onDeleteMedia}
-          />
-        )}
-
-        {/* TAB 4: SETTINGS */}
-        {currentTab === 'settings' && (
-          <SettingsPanel
-            settings={settings}
-            onSave={onSaveSettings}
-          />
-        )}
-      </main>
-
-      {/* Site Footer */}
-      <footer className="w-full py-4 px-6 border-t border-[#242332] bg-[#0f0e17] text-center text-xs text-[#8f887b] font-cinzel flex flex-col sm:flex-row items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2 text-[#756e60]">
-          <div className="w-5 h-5 rounded-full overflow-hidden border border-[#d4af37]/40 shrink-0 bg-black">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-          </div>
-          <span>Ash's Personal Diary • Private Workshop</span>
-        </div>
-        <div className="text-xs text-[#8e8574]">
-          Created And Designed By{' '}
-          <a
-            href="https://ash-wickramasinghe.site"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[#d4af37] hover:text-[#f3e1a0] underline underline-offset-4 transition-colors font-semibold"
+      {/* Mobile Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex bg-black/75 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            className="h-full w-72 border-r border-[#232734] bg-[#101218] p-5 flex flex-col gap-4"
           >
-            Ash Wickramasinghe
-          </a>
+            <div className="flex items-center justify-between pb-3 border-b border-[#1e222d]">
+              <span className="font-serif-title text-sm font-semibold text-[#f2efe9]">
+                Author Studio
+              </span>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 text-[#8e929b]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <nav className="space-y-1">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`flex w-full min-h-[44px] items-center gap-3 rounded-lg px-3.5 text-xs font-medium ${
+                    activeTab === item.id
+                      ? 'bg-[#c5a059]/15 text-[#f2efe9]'
+                      : 'text-[#a0a4ad]'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setMediaModalOpen(true);
+                }}
+                className="flex w-full min-h-[44px] items-center gap-3 rounded-lg px-3.5 text-xs font-medium text-[#a0a4ad]"
+              >
+                <Image className="h-4 w-4" />
+                <span>Media Archive</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setPdfModalOpen(true);
+                }}
+                className="flex w-full min-h-[44px] items-center gap-3 rounded-lg px-3.5 text-xs font-medium text-[#a0a4ad]"
+              >
+                <FileDown className="h-4 w-4" />
+                <span>Export PDF</span>
+              </button>
+            </nav>
+          </aside>
         </div>
-      </footer>
-
-      {/* Global Media Modal */}
-      {showMediaModal && (
-        <MediaLibraryModal
-          media={media}
-          onUpload={onUploadMedia}
-          onDelete={onDeleteMedia}
-          onClose={() => setShowMediaModal(false)}
-        />
       )}
 
-      {/* Printable PDF Export Modal */}
+      <MediaLibraryModal open={mediaModalOpen} onClose={() => setMediaModalOpen(false)} />
       <PdfExportModal
-        isOpen={showPdfExportModal}
-        onClose={() => setShowPdfExportModal(false)}
+        open={pdfModalOpen}
+        onClose={() => setPdfModalOpen(false)}
         entries={entries}
         settings={settings}
-        preSelectedIds={pdfModalInitialIds}
       />
-
-      {/* Direct Secret Passcode & Hint Configuration Modal */}
       <SecretPageModal
-        isOpen={showSecretModal}
-        entry={secretModalEntry}
-        onClose={() => {
-          setShowSecretModal(false);
-          setSecretModalEntry(null);
+        open={Boolean(secretTarget)}
+        targetTitle={secretTarget?.title || ''}
+        initialIsSecret={Boolean(secretTarget?.isSecret)}
+        initialKey={secretTarget?.securityKey || secretTarget?.secretPasscode || ''}
+        initialHint={secretTarget?.securityHint || secretTarget?.secretHint || ''}
+        onSave={async (payload) => {
+          if (!secretTarget) return;
+          await updateEntry(secretTarget.id, {
+            isSecret: payload.isSecret,
+            securityKey: payload.securityKey,
+            securityHint: payload.securityHint,
+            secretPasscode: payload.securityKey,
+            secretHint: payload.securityHint,
+          });
+          showToast(
+            payload.isSecret ? 'Leaf sealed with passkey.' : 'Passkey seal removed.',
+            'success'
+          );
         }}
-        onSave={handleSaveSecretSettings}
+        onClose={() => setSecretTarget(null)}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete Diary Entry?"
+        description={`Permanently delete "${deleteTarget?.title}"? This action cannot be undone.`}
+        confirmLabel="Delete Entry"
+        destructive
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   );
-};
+}

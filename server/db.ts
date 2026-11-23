@@ -1,406 +1,483 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getFirestore,
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  updateDoc,
-  writeBatch
-} from 'firebase/firestore';
-import { DiaryEntry, DiarySettings, MediaItem, DashboardStats } from '../src/types/index.ts';
+import type {
+  DiaryEntry,
+  DiaryChapter,
+  DiarySettings,
+  MediaItem,
+  DashboardStats,
+  UserRole,
+} from '../src/types/index.ts';
+import { timingSafeEqualText } from './vaultStore.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Firebase configuration from provisioned applet
-const firebaseConfigPath = path.resolve(__dirname, '../firebase-applet-config.json');
-let firebaseConfig: any = {};
-if (fs.existsSync(firebaseConfigPath)) {
-  try {
-    firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
-  } catch (err) {
-    console.error('Error reading firebase-applet-config.json:', err);
-  }
+export interface DatabaseSchema {
+  chapters: DiaryChapter[];
+  entries: DiaryEntry[];
+  settings: DiarySettings;
+  media: MediaItem[];
 }
 
-const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const firestore = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-
-const EDITOR_SECRET_KEY = 'ash-diary-secure-editor-session-2026';
-
-/**
- * Strips undefined values to ensure compatibility with Cloud Firestore requirements
- */
-function cleanFirestoreData<T extends Record<string, any>>(data: T): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const [key, val] of Object.entries(data)) {
-    if (val !== undefined) {
-      if (val !== null && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)) {
-        result[key] = cleanFirestoreData(val);
-      } else {
-        result[key] = val;
-      }
-    }
-  }
-  return result;
-}
+const DATA_DIR = path.join(process.cwd(), 'data');
+const DB_FILE = path.join(DATA_DIR, 'diary_database.json');
 
 const DEFAULT_SETTINGS: DiarySettings = {
   title: "Ash's Personal Diary",
-  subtitle: "Private Journal",
+  subtitle: 'Private Journal',
   coverText: "ASH'S PERSONAL DIARY",
-  authorName: "ASH-X8",
-  paperColor: "classic",
-  typography: "garamond",
+  authorName: 'ASH-X8',
+  paperColor: 'classic',
+  typography: 'garamond',
+  fontSize: 'normal',
   soundEnabled: true,
   twoPageMode: true,
   mobileSwipeEnabled: true,
-  theme: "dark",
-  readingWidth: "normal",
-  pageAnimationSpeed: "normal",
+  theme: 'dark',
+  readingWidth: 'normal',
+  pageAnimationSpeed: 'normal',
   autoPageTurn: false,
+  reducedMotion: false,
   readerAccessEnabled: true,
   editorAccessEnabled: true,
-  lastUpdated: new Date().toISOString()
+  wordsPerPage: 100,
+  lastUpdated: new Date().toISOString(),
 };
 
-class FirestoreDatabase {
-  private cache: {
-    entries: DiaryEntry[];
-    settings: DiarySettings;
-    media: MediaItem[];
-    lastLoaded: number;
-  } = {
+let memoryDb: DatabaseSchema | null = null;
+
+function ensureInitialized(): DatabaseSchema {
+  if (memoryDb) return memoryDb;
+
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
+      memoryDb = {
+        chapters: Array.isArray(parsed.chapters) ? parsed.chapters : [],
+        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+        media: Array.isArray(parsed.media) ? parsed.media : [],
+      };
+      return memoryDb;
+    }
+  } catch {
+    // Fallback to empty schema if file cannot be read
+  }
+
+  memoryDb = {
+    chapters: [],
     entries: [],
-    settings: DEFAULT_SETTINGS,
+    settings: { ...DEFAULT_SETTINGS },
     media: [],
-    lastLoaded: 0
   };
+  return memoryDb;
+}
 
-  constructor() {
-    this.refreshCache().catch((err) => {
-      console.warn('Initial Firestore cache load warning:', err.message);
-    });
-  }
+function readDb(): DatabaseSchema {
+  return ensureInitialized();
+}
 
-  public async refreshCache(): Promise<void> {
-    try {
-      // 1. Fetch entries from Firestore
-      const entriesSnap = await getDocs(collection(firestore, 'diary_pages'));
-      const loadedEntries: DiaryEntry[] = [];
-      entriesSnap.forEach((d) => {
-        const data = d.data();
-        if (!['entry-01', 'entry-02', 'entry-03', 'entry-04', 'entry-05'].includes(d.id)) {
-          loadedEntries.push({
-            id: d.id,
-            title: data.title || 'Untitled',
-            slug: data.slug || d.id,
-            content: data.content || '',
-            date: data.date || '',
-            mood: data.mood,
-            location: data.location,
-            tags: Array.isArray(data.tags) ? data.tags : [],
-            coverImage: data.coverImage,
-            gallery: Array.isArray(data.gallery) ? data.gallery : [],
-            status: data.status === 'draft' ? 'draft' : 'published',
-            pageOrder: Number(data.pageOrder) || 1,
-            customPageNumber: data.customPageNumber ? Number(data.customPageNumber) : undefined,
-            isSecret: Boolean(data.isSecret),
-            secretPasscode: data.secretPasscode || undefined,
-            secretHint: data.secretHint || undefined,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-            publishedAt: data.publishedAt
-          });
-        }
-      });
-
-      this.cache.entries = loadedEntries.sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-
-      // 2. Fetch settings from Firestore
-      const settingsSnap = await getDoc(doc(firestore, 'settings', 'general'));
-      if (settingsSnap.exists()) {
-        this.cache.settings = { ...DEFAULT_SETTINGS, ...(settingsSnap.data() as DiarySettings) };
-      }
-
-      // 3. Fetch media from Firestore
-      const mediaSnap = await getDocs(collection(firestore, 'media'));
-      const loadedMedia: MediaItem[] = [];
-      mediaSnap.forEach((d) => {
-        loadedMedia.push(d.data() as MediaItem);
-      });
-      this.cache.media = loadedMedia.sort(
-        (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
-      );
-
-      this.cache.lastLoaded = Date.now();
-    } catch (err) {
-      console.error('Error refreshing Firestore cache:', err);
+function writeDb(data: DatabaseSchema): void {
+  memoryDb = data;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-  }
-
-  // Entries
-  public async getEntries(includeDrafts = false): Promise<DiaryEntry[]> {
-    // If cache is older than 5 seconds, refresh asynchronously
-    if (Date.now() - this.cache.lastLoaded > 5000) {
-      await this.refreshCache();
-    }
-    return this.cache.entries
-      .filter((e) => includeDrafts || e.status === 'published')
-      .sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-  }
-
-  public async getEntry(id: string, includeDrafts = false): Promise<DiaryEntry | undefined> {
-    if (Date.now() - this.cache.lastLoaded > 5000) {
-      await this.refreshCache();
-    }
-    const entry = this.cache.entries.find((e) => e.id === id || e.slug === id);
-    if (!entry) return undefined;
-    if (!includeDrafts && entry.status !== 'published') return undefined;
-    return entry;
-  }
-
-  public async createEntry(
-    entry: Omit<DiaryEntry, 'id' | 'createdAt' | 'updatedAt' | 'slug'>
-  ): Promise<DiaryEntry> {
-    const id = `entry-${Date.now()}`;
-    const slug =
-      entry.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '') || `entry-${id}`;
-
-    const now = new Date().toISOString();
-    const newEntry: DiaryEntry = {
-      ...entry,
-      id,
-      slug,
-      pageOrder: entry.pageOrder || this.cache.entries.length + 1,
-      createdAt: now,
-      updatedAt: now,
-      publishedAt: entry.status === 'published' ? now : undefined
-    };
-
-    // Save directly to Firestore (both diary_pages and entries collections for maximum backward and forward compatibility)
-    const pageDocRef = doc(firestore, 'diary_pages', id);
-    const legacyDocRef = doc(firestore, 'entries', id);
-    const cleanedPayload = cleanFirestoreData({
-      ...newEntry,
-      _editorKey: EDITOR_SECRET_KEY
-    });
-    await Promise.allSettled([
-      setDoc(pageDocRef, cleanedPayload),
-      setDoc(legacyDocRef, cleanedPayload)
-    ]);
-
-    // Update settings lastUpdated in Firestore to trigger real-time notification
-    await updateDoc(doc(firestore, 'settings', 'general'), {
-      lastUpdated: now,
-      _editorKey: EDITOR_SECRET_KEY
-    }).catch(async () => {
-      await setDoc(doc(firestore, 'settings', 'general'), cleanFirestoreData({
-        ...this.cache.settings,
-        lastUpdated: now,
-        _editorKey: EDITOR_SECRET_KEY
-      }));
-    });
-
-    // Update local cache
-    this.cache.entries.push(newEntry);
-    this.cache.entries.sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-    this.cache.settings.lastUpdated = now;
-
-    return newEntry;
-  }
-
-  public async updateEntry(id: string, updates: Partial<DiaryEntry>): Promise<DiaryEntry | undefined> {
-    const existing = this.cache.entries.find((e) => e.id === id);
-    const now = new Date().toISOString();
-
-    let publishedAt = existing?.publishedAt;
-    if (updates.status === 'published' && (!existing || existing.status !== 'published')) {
-      publishedAt = now;
-    }
-
-    const updatedData: any = {
-      ...(existing || {}),
-      ...updates,
-      id,
-      updatedAt: now,
-      publishedAt,
-      _editorKey: EDITOR_SECRET_KEY
-    };
-
-    // Save directly to Firestore
-    const pageDocRef = doc(firestore, 'diary_pages', id);
-    const legacyDocRef = doc(firestore, 'entries', id);
-    const cleanedPayload = cleanFirestoreData(updatedData);
-    await Promise.allSettled([
-      setDoc(pageDocRef, cleanedPayload, { merge: true }),
-      setDoc(legacyDocRef, cleanedPayload, { merge: true })
-    ]);
-
-    // Update settings lastUpdated in Firestore for live ping
-    await updateDoc(doc(firestore, 'settings', 'general'), {
-      lastUpdated: now,
-      _editorKey: EDITOR_SECRET_KEY
-    }).catch(() => {});
-
-    // Update cache
-    const idx = this.cache.entries.findIndex((e) => e.id === id);
-    if (idx !== -1) {
-      this.cache.entries[idx] = updatedData;
-    } else {
-      this.cache.entries.push(updatedData);
-    }
-    this.cache.entries.sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-    this.cache.settings.lastUpdated = now;
-
-    return updatedData;
-  }
-
-  public async deleteEntry(id: string): Promise<boolean> {
-    try {
-      await Promise.allSettled([
-        deleteDoc(doc(firestore, 'diary_pages', id)),
-        deleteDoc(doc(firestore, 'entries', id))
-      ]);
-
-      const now = new Date().toISOString();
-      await updateDoc(doc(firestore, 'settings', 'general'), {
-        lastUpdated: now,
-        _editorKey: EDITOR_SECRET_KEY
-      }).catch(() => {});
-
-      this.cache.entries = this.cache.entries.filter((e) => e.id !== id);
-      this.cache.settings.lastUpdated = now;
-      return true;
-    } catch (err) {
-      console.error('Error deleting entry from Firestore:', err);
-      return false;
-    }
-  }
-
-  public async reorderEntries(orderMap: { id: string; pageOrder: number }[]): Promise<boolean> {
-    try {
-      const batch = writeBatch(firestore);
-      const map = new Map(orderMap.map((o) => [o.id, o.pageOrder]));
-
-      for (const item of orderMap) {
-        batch.set(doc(firestore, 'diary_pages', item.id), {
-          pageOrder: item.pageOrder,
-          _editorKey: EDITOR_SECRET_KEY
-        }, { merge: true });
-        batch.set(doc(firestore, 'entries', item.id), {
-          pageOrder: item.pageOrder,
-          _editorKey: EDITOR_SECRET_KEY
-        }, { merge: true });
-      }
-      await batch.commit();
-
-      this.cache.entries.forEach((e) => {
-        if (map.has(e.id)) {
-          e.pageOrder = map.get(e.id)!;
-        }
-      });
-      this.cache.entries.sort((a, b) => a.pageOrder - b.pageOrder);
-
-      const now = new Date().toISOString();
-      await updateDoc(doc(firestore, 'settings', 'general'), {
-        lastUpdated: now,
-        _editorKey: EDITOR_SECRET_KEY
-      }).catch(() => {});
-
-      return true;
-    } catch (err) {
-      console.error('Error reordering entries in Firestore:', err);
-      return false;
-    }
-  }
-
-  // Settings
-  public async getSettings(): Promise<DiarySettings> {
-    if (Date.now() - this.cache.lastLoaded > 5000) {
-      await this.refreshCache();
-    }
-    return this.cache.settings;
-  }
-
-  public async updateSettings(updates: Partial<DiarySettings>): Promise<DiarySettings> {
-    const now = new Date().toISOString();
-    const updatedSettings: DiarySettings = {
-      ...this.cache.settings,
-      ...updates,
-      lastUpdated: now
-    };
-
-    // Save directly to Firestore
-    const docRef = doc(firestore, 'settings', 'general');
-    await setDoc(docRef, cleanFirestoreData({
-      ...updatedSettings,
-      _editorKey: EDITOR_SECRET_KEY
-    }), { merge: true });
-
-    this.cache.settings = updatedSettings;
-    return updatedSettings;
-  }
-
-  // Media
-  public async getMedia(): Promise<MediaItem[]> {
-    if (Date.now() - this.cache.lastLoaded > 5000) {
-      await this.refreshCache();
-    }
-    return this.cache.media;
-  }
-
-  public async addMedia(item: MediaItem): Promise<MediaItem> {
-    const docRef = doc(firestore, 'media', item.id);
-    await setDoc(docRef, cleanFirestoreData({
-      ...item,
-      _editorKey: EDITOR_SECRET_KEY
-    }));
-    this.cache.media.unshift(item);
-    return item;
-  }
-
-  public async deleteMedia(id: string): Promise<boolean> {
-    try {
-      const docRef = doc(firestore, 'media', id);
-      await deleteDoc(docRef);
-      this.cache.media = this.cache.media.filter((m) => m.id !== id);
-      return true;
-    } catch (err) {
-      console.error('Error deleting media from Firestore:', err);
-      return false;
-    }
-  }
-
-  // Stats
-  public async getStats(): Promise<DashboardStats> {
-    await this.refreshCache();
-    const totalEntries = this.cache.entries.length;
-    const published = this.cache.entries.filter((e) => e.status === 'published').length;
-    const drafts = this.cache.entries.filter((e) => e.status === 'draft').length;
-
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonth = this.cache.entries.filter((e) => e.date.startsWith(currentMonth)).length;
-
-    return {
-      totalEntries,
-      published,
-      drafts,
-      thisMonth,
-      totalPages: published * 2 + 2,
-      lastUpdated: this.cache.settings.lastUpdated
-    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // Read-only / ephemeral host: keep updated data in memory
   }
 }
 
-export const db = new FirestoreDatabase();
+function countWordsSimple(htmlOrText: string): number {
+  if (!htmlOrText) return 0;
+  const clean = htmlOrText.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').trim();
+  if (!clean) return 0;
+  return clean.split(/\s+/).filter(Boolean).length;
+}
+
+export function sanitizeEntryForRole(
+  entry: DiaryEntry,
+  role: UserRole | undefined,
+  unlockedIds: Set<string> = new Set()
+): DiaryEntry {
+  if (role === 'EDITOR') {
+    return {
+      ...entry,
+      isLocked: false,
+    };
+  }
+
+  const secretKeyValue = (entry.securityKey || entry.secretPasscode || '').trim();
+  const isSecret = Boolean(entry.isSecret || secretKeyValue);
+  const isUnlocked = unlockedIds.has(entry.id);
+
+  // Strip raw secret key/passcode from READER responses unconditionally
+  const { securityKey: _sk, secretPasscode: _sp, ...safeBase } = entry;
+
+  if (isSecret && !isUnlocked) {
+    return {
+      ...safeBase,
+      content: '',
+      coverImage: '',
+      gallery: [],
+      isSecret: true,
+      isLocked: true,
+      securityHint: entry.securityHint || entry.secretHint,
+    };
+  }
+
+  return {
+    ...safeBase,
+    isSecret,
+    isLocked: false,
+    securityHint: entry.securityHint || entry.secretHint,
+  };
+}
+
+export function sanitizeChapterForRole(
+  chapter: DiaryChapter,
+  role: UserRole | undefined,
+  unlockedIds: Set<string> = new Set()
+): DiaryChapter {
+  if (role === 'EDITOR') {
+    return {
+      ...chapter,
+      isLocked: false,
+    };
+  }
+
+  const secretKeyValue = (chapter.securityKey || chapter.secretPasscode || '').trim();
+  const isSecret = Boolean(chapter.isSecret || secretKeyValue);
+  const isUnlocked = unlockedIds.has(chapter.id);
+
+  const { securityKey: _sk, secretPasscode: _sp, ...safeBase } = chapter;
+
+  if (isSecret && !isUnlocked) {
+    return {
+      ...safeBase,
+      rawContent: '',
+      coverImage: '',
+      gallery: [],
+      isSecret: true,
+      isLocked: true,
+      securityHint: chapter.securityHint || chapter.secretHint,
+    };
+  }
+
+  return {
+    ...safeBase,
+    isSecret,
+    isLocked: false,
+    securityHint: chapter.securityHint || chapter.secretHint,
+  };
+}
+
+export const dbService = {
+  // === Chapters ===
+  getChapters(
+    includeDrafts = false,
+    role: UserRole = 'READER',
+    unlockedIds: Set<string> = new Set()
+  ): DiaryChapter[] {
+    const db = readDb();
+    let list = [...db.chapters];
+    if (!includeDrafts) {
+      list = list.filter((c) => (c.status || 'published') === 'published');
+    }
+    list.sort((a, b) => (a.order || 0) - (b.order || 0));
+    return list.map((c) => sanitizeChapterForRole(c, role, unlockedIds));
+  },
+
+  getRawChapterById(id: string): DiaryChapter | undefined {
+    const db = readDb();
+    return db.chapters.find((c) => c.id === id);
+  },
+
+  createChapter(
+    data: Partial<DiaryChapter> & { chapterTitle: string }
+  ): DiaryChapter {
+    const db = readDb();
+    const now = new Date().toISOString();
+    const maxOrder = db.chapters.reduce((max, c) => Math.max(max, c.order || 0), 0);
+
+    const newChapter: DiaryChapter = {
+      id: data.id || `chapter-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      chapterTitle: data.chapterTitle || 'Untitled Chapter',
+      description: data.description || '',
+      rawContent: data.rawContent || '',
+      date: data.date || now.split('T')[0],
+      mood: data.mood || '',
+      location: data.location || '',
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      coverImage: data.coverImage || '',
+      gallery: Array.isArray(data.gallery) ? data.gallery : [],
+      status: data.status || 'draft',
+      order: typeof data.order === 'number' ? data.order : maxOrder + 1,
+      isSecret: Boolean(data.isSecret),
+      securityKey: data.securityKey || data.secretPasscode || '',
+      securityHint: data.securityHint || data.secretHint || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.chapters.push(newChapter);
+    writeDb(db);
+    return newChapter;
+  },
+
+  updateChapter(id: string, updates: Partial<DiaryChapter>): DiaryChapter | null {
+    const db = readDb();
+    const idx = db.chapters.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+
+    const existing = db.chapters[idx];
+    const updated: DiaryChapter = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      updatedAt: new Date().toISOString(),
+    };
+    db.chapters[idx] = updated;
+    writeDb(db);
+    return updated;
+  },
+
+  deleteChapter(id: string): boolean {
+    const db = readDb();
+    const next = db.chapters.filter((c) => c.id !== id);
+    if (next.length === db.chapters.length) return false;
+    db.chapters = next;
+    // Unassign entries from deleted chapter without deleting the entries themselves
+    db.entries = db.entries.map((e) => (e.chapterId === id ? { ...e, chapterId: undefined } : e));
+    writeDb(db);
+    return true;
+  },
+
+  reorderChapters(orderedIds: string[]): DiaryChapter[] {
+    const db = readDb();
+    const idMap = new Map<string, number>();
+    orderedIds.forEach((cid, i) => idMap.set(cid, i + 1));
+
+    db.chapters = db.chapters.map((c) => {
+      const order = idMap.get(c.id);
+      return order !== undefined ? { ...c, order, updatedAt: new Date().toISOString() } : c;
+    });
+    db.chapters.sort((a, b) => (a.order || 0) - (b.order || 0));
+    writeDb(db);
+    return db.chapters;
+  },
+
+  verifyChapterSecretKey(id: string, candidateKey: string): DiaryChapter | null {
+    const chapter = this.getRawChapterById(id);
+    if (!chapter) return null;
+    const expected = (chapter.securityKey || chapter.secretPasscode || '').trim();
+    if (!expected) return chapter;
+    if (!timingSafeEqualText(candidateKey.trim(), expected)) {
+      return null;
+    }
+    return chapter;
+  },
+
+  // === Entries ===
+  getEntries(
+    includeDrafts = false,
+    role: UserRole = 'READER',
+    unlockedIds: Set<string> = new Set()
+  ): DiaryEntry[] {
+    const db = readDb();
+    let entries = [...db.entries];
+    if (!includeDrafts) {
+      entries = entries.filter((e) => e.status === 'published');
+    }
+    entries.sort((a, b) => a.pageOrder - b.pageOrder);
+    return entries.map((e) => sanitizeEntryForRole(e, role, unlockedIds));
+  },
+
+  getRawEntryById(id: string): DiaryEntry | undefined {
+    const db = readDb();
+    return db.entries.find((e) => e.id === id);
+  },
+
+  getEntryById(
+    id: string,
+    role: UserRole = 'READER',
+    unlockedIds: Set<string> = new Set()
+  ): DiaryEntry | undefined {
+    const entry = this.getRawEntryById(id);
+    if (!entry) return undefined;
+    if (role !== 'EDITOR' && entry.status !== 'published') return undefined;
+    return sanitizeEntryForRole(entry, role, unlockedIds);
+  },
+
+  createEntry(
+    entryData: Omit<DiaryEntry, 'id' | 'createdAt' | 'updatedAt' | 'slug'> & { id?: string }
+  ): DiaryEntry {
+    const db = readDb();
+    const now = new Date().toISOString();
+    const slugBase = (entryData.title || 'untitled')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .slice(0, 60) || 'entry';
+    const maxOrder = db.entries.reduce((max, e) => Math.max(max, e.pageOrder || 0), 0);
+
+    const newEntry: DiaryEntry = {
+      ...entryData,
+      id: entryData.id || `entry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      slug: `${slugBase}-${Date.now().toString(36).slice(-4)}`,
+      pageOrder: entryData.pageOrder ?? maxOrder + 1,
+      gallery: Array.isArray(entryData.gallery) ? entryData.gallery : [],
+      tags: Array.isArray(entryData.tags) ? entryData.tags : [],
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: entryData.status === 'published' ? now : undefined,
+    };
+
+    db.entries.push(newEntry);
+    writeDb(db);
+    return newEntry;
+  },
+
+  updateEntry(id: string, updates: Partial<DiaryEntry>): DiaryEntry | null {
+    const db = readDb();
+    const index = db.entries.findIndex((e) => e.id === id);
+    if (index === -1) return null;
+
+    const existing = db.entries[index];
+    const now = new Date().toISOString();
+
+    const updated: DiaryEntry = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      updatedAt: now,
+      publishedAt:
+        updates.status === 'published' && !existing.publishedAt ? now : existing.publishedAt,
+    };
+
+    db.entries[index] = updated;
+    writeDb(db);
+    return updated;
+  },
+
+  deleteEntry(id: string): boolean {
+    const db = readDb();
+    const initialLen = db.entries.length;
+    db.entries = db.entries.filter((e) => e.id !== id);
+    if (db.entries.length !== initialLen) {
+      writeDb(db);
+      return true;
+    }
+    return false;
+  },
+
+  reorderEntries(orderedIds: string[]): DiaryEntry[] {
+    const db = readDb();
+    const orderMap = new Map<string, number>();
+    orderedIds.forEach((eid, idx) => orderMap.set(eid, idx + 1));
+
+    db.entries = db.entries.map((entry) => {
+      const newOrder = orderMap.get(entry.id);
+      if (newOrder !== undefined) {
+        return { ...entry, pageOrder: newOrder, updatedAt: new Date().toISOString() };
+      }
+      return entry;
+    });
+
+    db.entries.sort((a, b) => a.pageOrder - b.pageOrder);
+    writeDb(db);
+    return db.entries;
+  },
+
+  verifyEntrySecretKey(id: string, candidateKey: string): DiaryEntry | null {
+    const entry = this.getRawEntryById(id);
+    if (!entry) return null;
+    const expected = (entry.securityKey || entry.secretPasscode || '').trim();
+    if (!expected) return entry;
+    if (!timingSafeEqualText(candidateKey.trim(), expected)) {
+      return null;
+    }
+    return entry;
+  },
+
+  // === Settings ===
+  getSettings(): DiarySettings {
+    const db = readDb();
+    return { ...DEFAULT_SETTINGS, ...db.settings };
+  },
+
+  updateSettings(updates: Partial<DiarySettings>): DiarySettings {
+    const db = readDb();
+    const updated: DiarySettings = {
+      ...DEFAULT_SETTINGS,
+      ...db.settings,
+      ...updates,
+      lastUpdated: new Date().toISOString(),
+    };
+    db.settings = updated;
+    writeDb(db);
+    return updated;
+  },
+
+  // === Media ===
+  getMedia(): MediaItem[] {
+    const db = readDb();
+    return [...db.media].sort(
+      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+    );
+  },
+
+  addMedia(media: Omit<MediaItem, 'id' | 'uploadedAt'>): MediaItem {
+    const db = readDb();
+    const item: MediaItem = {
+      ...media,
+      id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      uploadedAt: new Date().toISOString(),
+    };
+    db.media.push(item);
+    writeDb(db);
+    return item;
+  },
+
+  deleteMedia(id: string): MediaItem | null {
+    const db = readDb();
+    const index = db.media.findIndex((m) => m.id === id);
+    if (index === -1) return null;
+    const deleted = db.media[index];
+    db.media.splice(index, 1);
+    writeDb(db);
+    return deleted;
+  },
+
+  // === Stats ===
+  getStats(): DashboardStats {
+    const db = readDb();
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const publishedEntries = db.entries.filter((e) => e.status === 'published');
+    const draftEntries = db.entries.filter((e) => e.status === 'draft');
+    const thisMonthEntries = db.entries.filter(
+      (e) => (e.date || e.createdAt || '').startsWith(currentMonth)
+    );
+    const secretCount =
+      db.entries.filter((e) => e.isSecret || e.securityKey || e.secretPasscode).length +
+      db.chapters.filter((c) => c.isSecret || c.securityKey || c.secretPasscode).length;
+
+    const totalWords =
+      db.entries.reduce((sum, e) => sum + countWordsSimple(e.content), 0) +
+      db.chapters.reduce((sum, c) => sum + countWordsSimple(c.rawContent), 0);
+
+    return {
+      totalEntries: db.entries.length,
+      published: publishedEntries.length,
+      drafts: draftEntries.length,
+      secretCount,
+      chaptersCount: db.chapters.length,
+      thisMonth: thisMonthEntries.length,
+      totalPages: Math.max(publishedEntries.length, db.chapters.length),
+      totalWords,
+      lastUpdated: db.settings.lastUpdated || now.toISOString(),
+    };
+  },
+};

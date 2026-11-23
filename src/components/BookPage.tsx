@@ -1,393 +1,246 @@
-import React from 'react';
-import { MapPin, Smile, Tag, Calendar, Sparkles, Lock } from 'lucide-react';
-import { DiaryEntry, DiarySettings } from '../types';
+import React, { useMemo, useState } from 'react';
+import { ImageOff, X } from 'lucide-react';
+import type { DiarySettings } from '../types';
+import { sanitizeHtml, sanitizeMediaUrl } from '../utils/sanitize';
+import { BookSecretLockedPage } from './BookSecretLockedPage';
+
+export interface BookLeafData {
+  id: string;
+  sourceType: 'entry' | 'chapter';
+  sourceId: string;
+  title: string;
+  content: string;
+  date?: string;
+  mood?: string;
+  location?: string;
+  tags?: string[];
+  coverImage?: string;
+  gallery?: string[];
+  isSecret?: boolean;
+  isLocked?: boolean;
+  securityHint?: string;
+  pageNumber: number;
+  subLabel?: string;
+}
 
 interface BookPageProps {
-  pageNumber: number;
-  totalPages: number;
-  settings: DiarySettings;
-  paperTheme: 'classic' | 'clean' | 'dark';
+  leaf: BookLeafData | null;
   side: 'left' | 'right' | 'single';
-  children: React.ReactNode;
+  settings: DiarySettings;
+  onUnlockSecret: (leaf: BookLeafData, passkey: string) => Promise<void>;
 }
 
-export const BookPageContainer: React.FC<BookPageProps> = ({
-  pageNumber,
-  totalPages,
-  settings,
-  paperTheme,
-  side,
-  children
-}) => {
-  // Theme styling definitions
-  const themeClasses = {
-    classic: {
-      bg: 'bg-[#f7f2e7]',
-      text: 'text-[#2b241d]',
-      subtext: 'text-[#7d7062]',
-      border: 'border-[#dfd7c5]',
-      spineShadow: side === 'left' ? 'paper-shadow-left' : side === 'right' ? 'paper-shadow-right' : 'shadow-2xl',
-      texture: 'bg-[radial-gradient(#d6ccb8_0.6px,transparent_0.6px)] [background-size:24px_24px]'
-    },
-    clean: {
-      bg: 'bg-[#faf9f6]',
-      text: 'text-[#1d1d21]',
-      subtext: 'text-[#6e6e78]',
-      border: 'border-[#e4e2dd]',
-      spineShadow: side === 'left' ? 'paper-shadow-left' : side === 'right' ? 'paper-shadow-right' : 'shadow-2xl',
-      texture: 'bg-[radial-gradient(#e5e2db_0.6px,transparent_0.6px)] [background-size:24px_24px]'
-    },
-    dark: {
-      bg: 'bg-[#18181c]',
-      text: 'text-[#e5e1d8]',
-      subtext: 'text-[#8a857b]',
-      border: 'border-[#2d2c34]',
-      spineShadow: side === 'left' ? 'paper-shadow-left' : side === 'right' ? 'paper-shadow-right' : 'shadow-2xl',
-      texture: 'bg-[radial-gradient(#26252c_0.6px,transparent_0.6px)] [background-size:24px_24px]'
+export function BookPage({ leaf, side, settings, onUnlockSecret }: BookPageProps) {
+  const [coverFailed, setCoverFailed] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  const paperStyles = useMemo(() => {
+    switch (settings.paperColor) {
+      case 'clean':
+        return 'bg-[#fcfbf8] text-[#221f1c] border-[#e2ddd3]';
+      case 'dark':
+        return 'bg-[#16181f] text-[#e6e3dc] border-[#262a36]';
+      case 'classic':
+      default:
+        return 'bg-[#f4ede0] text-[#2b231b] border-[#d8cbb4]';
     }
-  }[paperTheme];
+  }, [settings.paperColor]);
+
+  const fontClass = useMemo(() => {
+    switch (settings.typography) {
+      case 'cinzel':
+        return 'font-serif-title';
+      case 'classic':
+        return 'font-sans-ui';
+      case 'garamond':
+      default:
+        return 'font-serif-book';
+    }
+  }, [settings.typography]);
+
+  const proseSizeClass = useMemo(() => {
+    switch (settings.fontSize) {
+      case 'compact':
+        return 'text-[15px] leading-[1.7]';
+      case 'large':
+        return 'text-[19px] leading-[1.85]';
+      case 'normal':
+      default:
+        return 'text-[17px] leading-[1.78]';
+    }
+  }, [settings.fontSize]);
+
+  const isDarkPaper = settings.paperColor === 'dark';
+
+  if (!leaf) {
+    return (
+      <article
+        className={`relative flex h-full min-h-[520px] flex-col justify-between border p-6 sm:p-8 ${paperStyles} ${
+          side === 'left'
+            ? 'rounded-l-xl border-r-0 shadow-inner'
+            : side === 'right'
+            ? 'rounded-r-xl shadow-inner'
+            : 'rounded-xl'
+        }`}
+      >
+        <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50">
+          <p className="font-serif-book italic text-base">Finis — End of Recorded Pages</p>
+        </div>
+      </article>
+    );
+  }
+
+  const safeCover = !coverFailed ? sanitizeMediaUrl(leaf.coverImage) : '';
+  const safeGallery = (leaf.gallery || []).map(sanitizeMediaUrl).filter(Boolean);
+  const sanitizedProse = sanitizeHtml(leaf.content);
+
+  const formattedDate = leaf.date
+    ? new Date(leaf.date).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : '';
+
+  const metadataItems: string[] = [];
+  if (formattedDate) metadataItems.push(formattedDate);
+  if (leaf.mood) metadataItems.push(leaf.mood);
+  if (leaf.location) metadataItems.push(leaf.location);
 
   return (
-    <div
-      className={`relative w-full h-full flex flex-col justify-between p-6 sm:p-9 md:p-11 select-text transition-colors duration-500 overflow-hidden ${
-        themeClasses.bg
-      } ${themeClasses.text} ${themeClasses.spineShadow} ${
-        side === 'left' ? 'rounded-l-lg md:rounded-r-none' : side === 'right' ? 'rounded-r-lg md:rounded-l-none' : 'rounded-lg'
+    <article
+      className={`relative flex h-full min-h-[520px] sm:min-h-[600px] flex-col justify-between border p-6 sm:p-9 ${paperStyles} ${
+        side === 'left'
+          ? 'rounded-l-xl lg:border-r lg:border-r-black/15'
+          : side === 'right'
+          ? 'rounded-r-xl'
+          : 'rounded-xl'
       }`}
     >
-      {/* Subtle paper grain texture */}
-      <div 
-        aria-hidden="true" 
-        className={`pointer-events-none absolute inset-0 opacity-40 ${themeClasses.texture}`} 
-      />
-
-      {/* Edge vignette & inner spine crease effect */}
+      {/* Subtle spine shadow gradient on dual-page spreads */}
       {side === 'left' && (
-        <div 
-          aria-hidden="true" 
-          className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-black/15 to-transparent hidden md:block" 
-        />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/[0.08] to-transparent" />
       )}
       {side === 'right' && (
-        <div 
-          aria-hidden="true" 
-          className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-black/15 to-transparent hidden md:block" 
-        />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/[0.08] to-transparent" />
       )}
 
-      {/* Subtle top page header */}
-      <div className="relative z-10 flex items-center justify-between text-[10px] tracking-[0.22em] uppercase font-cinzel opacity-70 pb-3 border-b border-black/10 dark:border-white/10 mb-5">
-        <span className="truncate max-w-[200px]">
-          {side === 'left' ? settings.title : settings.subtitle}
-        </span>
-        <span className="italic font-serif-book font-normal lowercase text-[12px] opacity-80">
-          private pages
-        </span>
-      </div>
-
-      {/* Main Page Content Body */}
-      <div className="relative z-10 flex-1 overflow-y-auto pr-1">
-        {children}
-      </div>
-
-      {/* Page Footer with Page Number */}
-      <div className="relative z-10 pt-4 flex items-center justify-between text-[11px] font-serif-book opacity-65 border-t border-black/10 dark:border-white/10 mt-4">
-        {side === 'left' ? (
-          <>
-            <span className="tracking-widest font-semibold">{pageNumber}</span>
-            <span className="text-[9px] font-cinzel tracking-widest uppercase opacity-70">
-              Ash Wickramasinghe
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="text-[9px] font-cinzel tracking-widest uppercase opacity-70">
-              Journal
-            </span>
-            <span className="tracking-widest font-semibold">{pageNumber}</span>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-
-/* ==========================================================================
-   INSIDE TITLE / PROLOGUE PAGE
-   ========================================================================== */
-
-interface BookTitlePageProps {
-  settings: DiarySettings;
-  authorName?: string;
-  totalEntries: number;
-}
-
-const BookTitlePageComponent: React.FC<BookTitlePageProps> = ({ settings, authorName = 'Ash Wickramasinghe', totalEntries }) => {
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-4">
-      <div className="w-16 h-16 rounded-full border border-[#d4af37]/60 overflow-hidden shadow-lg flex items-center justify-center mb-5 bg-black ring-2 ring-[#d4af37]/20">
-        <img
-          src="/logo.png"
-          alt="Ash's Personal Diary Logo"
-          className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
+      {leaf.isLocked ? (
+        <BookSecretLockedPage
+          title={leaf.title}
+          hint={leaf.securityHint}
+          paperColor={settings.paperColor}
+          onUnlockAttempt={(passkey) => onUnlockSecret(leaf, passkey)}
         />
-      </div>
-
-      <span className="text-xs font-cinzel tracking-[0.3em] uppercase opacity-60 mb-2">
-        {settings.subtitle || 'Private Journal'}
-      </span>
-
-      <h1 className="font-cinzel text-2xl sm:text-3xl font-bold tracking-[0.16em] uppercase mb-4 leading-tight">
-        {settings.title}
-      </h1>
-
-      <div className="w-16 h-px bg-current opacity-25 my-4" />
-
-      <p className="font-serif-book italic text-base sm:text-lg opacity-85 max-w-xs leading-relaxed mb-8">
-        "Some memories are meant to stay between pages, sheltered from the velocity of the world."
-      </p>
-
-      <div className="mt-auto pt-6 text-[10px] font-cinzel tracking-[0.25em] uppercase opacity-60 space-y-1">
-        <div>Compiled by {authorName}</div>
-        <div>{totalEntries} Recorded Entries</div>
-        <div>Volume I • 2026</div>
-      </div>
-    </div>
-  );
-};
-export const BookTitlePage = React.memo(BookTitlePageComponent);
-
-/* ==========================================================================
-   TABLE OF CONTENTS PAGE
-   ========================================================================== */
-
-interface BookTableOfContentsProps {
-  entries: DiaryEntry[];
-  onSelectEntry: (index: number) => void;
-}
-
-const BookTableOfContentsComponent: React.FC<BookTableOfContentsProps> = ({ entries, onSelectEntry }) => {
-  return (
-    <div className="h-full flex flex-col justify-start">
-      <div className="text-center pb-5 mb-4 border-b border-current opacity-30">
-        <h2 className="font-cinzel text-xl sm:text-2xl font-bold tracking-[0.25em] uppercase">
-          Contents
-        </h2>
-        <p className="font-serif-book italic text-xs opacity-75 mt-1">
-          Chronicles of thought & quiet hours
-        </p>
-      </div>
-
-      {entries.length === 0 ? (
-        <div className="my-auto text-center py-12">
-          <p className="font-serif-book italic text-base opacity-70">
-            This diary is still waiting for its first page.
-          </p>
-        </div>
       ) : (
-        <div className="space-y-4 my-auto overflow-y-auto max-h-[460px] pr-2">
-          {entries.map((entry, idx) => {
-            const pageNum = idx * 2 + 3; // TOC layout page jump
-            const formattedDate = new Date(entry.date).toLocaleDateString('en-US', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric'
-            });
+        <>
+          <div className="relative z-10 flex-1 flex flex-col min-h-0">
+            {/* Leaf Header */}
+            <header className="mb-5 pb-3.5 border-b border-current/15">
+              <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.16em] opacity-65">
+                <span className="truncate">{leaf.subLabel || 'Diary Leaf'}</span>
+                {leaf.tags && leaf.tags.length > 0 && (
+                  <span className="truncate">#{leaf.tags.slice(0, 2).join(' · #')}</span>
+                )}
+              </div>
 
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => onSelectEntry(idx)}
-                className="w-full text-left group flex items-baseline justify-between gap-3 py-1.5 hover:opacity-100 transition-opacity cursor-pointer opacity-80"
+              <h2
+                className={`mt-2 text-2xl sm:text-[26px] font-semibold leading-snug ${fontClass}`}
               >
-                <div className="flex-1 truncate">
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-cinzel text-xs opacity-60">
-                      {String(idx + 1).padStart(2, '0')}.
-                    </span>
-                    <span className="font-serif-book text-base sm:text-lg font-medium group-hover:underline underline-offset-4 truncate">
-                      {entry.title}
-                    </span>
-                    {entry.isSecret && (
-                      <span className="inline-flex items-center gap-1 text-[9px] text-[#d4af37] font-cinzel uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#d4af37]/10 border border-[#d4af37]/30 shrink-0">
-                        <Lock className="w-2.5 h-2.5" /> Secret
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] font-sans opacity-60 ml-6">
-                    {formattedDate} {entry.mood && `• ${entry.mood}`}
-                  </div>
-                </div>
+                {leaf.title}
+              </h2>
 
-                <div className="flex-1 border-b border-dotted border-current opacity-25 mx-2 hidden sm:block" />
+              {metadataItems.length > 0 && (
+                <p className="mt-1.5 text-xs italic opacity-70 tabular-nums">
+                  {metadataItems.join(' · ')}
+                </p>
+              )}
+            </header>
 
-                <span className="font-serif-book text-sm font-semibold opacity-70 group-hover:opacity-100">
-                  {pageNum}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+            {/* Optional Cover Illustration */}
+            {safeCover && (
+              <figure className="mb-5 overflow-hidden rounded-lg border border-current/10 bg-black/5">
+                <img
+                  src={safeCover}
+                  alt={leaf.title}
+                  referrerPolicy="no-referrer"
+                  onError={() => setCoverFailed(true)}
+                  className="max-h-52 w-full object-cover"
+                />
+              </figure>
+            )}
+            {leaf.coverImage && coverFailed && (
+              <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-current/15 py-6 text-xs opacity-60">
+                <ImageOff className="h-4 w-4" />
+                <span>Photo could not be displayed</span>
+              </div>
+            )}
 
-      <div className="mt-auto pt-4 text-center">
-        <span className="text-[10px] font-cinzel tracking-[0.2em] uppercase opacity-50">
-          Touch or click an entry to turn to page
-        </span>
-      </div>
-    </div>
-  );
-};
-export const BookTableOfContents = React.memo(BookTableOfContentsComponent);
-
-/* ==========================================================================
-   ENTRY SPREAD (LEFT PAGE: HERO & METADATA)
-   ========================================================================== */
-
-interface BookEntryLeftPageProps {
-  entry: DiaryEntry;
-  entryIndex: number;
-}
-
-const BookEntryLeftPageComponent: React.FC<BookEntryLeftPageProps> = ({ entry, entryIndex }) => {
-  const formattedDate = new Date(entry.date).toLocaleDateString('en-US', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
-
-  return (
-    <div className="h-full flex flex-col justify-between">
-      {/* Date & Chapter */}
-      <div>
-        <div className="flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase font-cinzel opacity-60 mb-2">
-          <Calendar className="w-3 h-3" />
-          <span>Entry {String(entryIndex + 1).padStart(2, '0')}</span>
-        </div>
-
-        <div className="font-serif-book text-xs sm:text-sm uppercase tracking-[0.18em] opacity-80 mb-3">
-          {formattedDate}
-        </div>
-
-        <h2 
-          dir="ltr"
-          style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
-          className="font-serif-book text-2xl sm:text-3xl font-semibold tracking-tight leading-snug mb-3 text-left ltr"
-        >
-          {entry.title}
-        </h2>
-
-        {/* Metadata badges: Mood & Location */}
-        <div className="flex flex-wrap items-center gap-2 text-xs opacity-75 mb-6">
-          {entry.mood && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-current/20 text-[11px] font-serif-book italic">
-              <Smile className="w-3 h-3" />
-              {entry.mood}
-            </span>
-          )}
-          {entry.location && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-current/20 text-[11px] font-serif-book">
-              <MapPin className="w-3 h-3" />
-              {entry.location}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Featured visual or atmospheric illustration */}
-      {entry.coverImage ? (
-        <div className="my-auto py-2">
-          <div className="relative overflow-hidden rounded shadow-md border border-current/15 max-h-56 sm:max-h-64">
-            <img
-              src={entry.coverImage}
-              alt={entry.title}
-              className="w-full h-full object-cover filter contrast-[1.03] sepia-[0.1]"
-              loading="lazy"
+            {/* Sanitized Diary Prose */}
+            <div
+              className={`diary-prose flex-1 overflow-y-auto pr-1 ${fontClass} ${proseSizeClass} ${
+                isDarkPaper ? 'text-[#dedad2]' : 'text-[#2b231b]'
+              }`}
+              dangerouslySetInnerHTML={{ __html: sanitizedProse }}
             />
+
+            {/* Optional Attached Gallery */}
+            {safeGallery.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-current/15">
+                <div className="grid grid-cols-3 gap-2.5">
+                  {safeGallery.slice(0, 6).map((url, idx) => (
+                    <button
+                      key={`${leaf.id}-gal-${idx}`}
+                      type="button"
+                      onClick={() => setLightboxUrl(url)}
+                      className="group relative aspect-square overflow-hidden rounded-md border border-current/15 bg-black/5 focus:outline-none"
+                    >
+                      <img
+                        src={url}
+                        alt={`Memory attachment ${idx + 1}`}
+                        referrerPolicy="no-referrer"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <p className="text-[10px] font-serif-book italic opacity-60 text-center mt-2">
-            Photograph recorded with entry
-          </p>
-        </div>
-      ) : (
-        <div className="my-auto py-6 text-center border-y border-current/15">
-          <p className="font-handwriting text-2xl sm:text-3xl opacity-80 leading-relaxed">
-            "{entry.title}"
-          </p>
-          <span className="text-[10px] font-cinzel tracking-[0.25em] uppercase opacity-50 block mt-2">
-            Inscribed in quiet thought
-          </span>
-        </div>
+
+          {/* Running Page Footer */}
+          <footer className="relative z-10 mt-6 pt-3 border-t border-current/10 flex items-center justify-between text-[11px] opacity-60 tabular-nums">
+            <span className="italic truncate max-w-[65%]">{settings.title}</span>
+            <span>— {leaf.pageNumber} —</span>
+          </footer>
+        </>
       )}
 
-      {/* Tags footer */}
-      {entry.tags && entry.tags.length > 0 && (
-        <div className="pt-4 border-t border-current/10 flex items-center gap-1.5 flex-wrap">
-          <Tag className="w-3 h-3 opacity-50" />
-          {entry.tags.map((t) => (
-            <span
-              key={t}
-              className="text-[10px] font-serif-book tracking-wider opacity-60 lowercase mr-2"
-            >
-              #{t}
-            </span>
-          ))}
+      {/* Lightbox Modal */}
+      {lightboxUrl && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-[85] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+        >
+          <button
+            type="button"
+            aria-label="Close image preview"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2.5 text-white hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Enlarged diary memory"
+            referrerPolicy="no-referrer"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+          />
         </div>
       )}
-    </div>
+    </article>
   );
-};
-export const BookEntryLeftPage = React.memo(BookEntryLeftPageComponent);
-
-/* ==========================================================================
-   ENTRY SPREAD (RIGHT PAGE: RICH TEXT BODY & GALLERY)
-   ========================================================================== */
-
-interface BookEntryRightPageProps {
-  entry: DiaryEntry;
 }
-
-const BookEntryRightPageComponent: React.FC<BookEntryRightPageProps> = ({ entry }) => {
-  return (
-    <div className="h-full flex flex-col justify-between">
-      {/* Editorial Content */}
-      <div 
-        dir="ltr"
-        style={{ direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
-        className="font-serif-book text-base sm:text-lg leading-relaxed sm:leading-[1.75] space-y-4 diary-prose select-text text-left ltr"
-        dangerouslySetInnerHTML={{ __html: entry.content }}
-      />
-
-      {/* Optional Gallery thumbnails */}
-      {entry.gallery && entry.gallery.length > 0 && (
-        <div className="pt-5 mt-6 border-t border-current/15">
-          <span className="text-[9px] font-cinzel tracking-[0.22em] uppercase opacity-60 block mb-2">
-            Attached Memories ({entry.gallery.length})
-          </span>
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {entry.gallery.map((imgUrl, i) => (
-              <img
-                key={i}
-                src={imgUrl}
-                alt={`Attachment ${i + 1}`}
-                className="w-16 h-16 rounded object-cover border border-current/20 shadow-sm"
-                loading="lazy"
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Signature sign-off */}
-      <div className="pt-4 text-right">
-        <span className="font-handwriting text-xl sm:text-2xl opacity-75 inline-block -rotate-3">
-          — Ash
-        </span>
-      </div>
-    </div>
-  );
-};
-export const BookEntryRightPage = React.memo(BookEntryRightPageComponent);

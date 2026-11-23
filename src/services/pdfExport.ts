@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { DiaryEntry, DiarySettings } from '../types';
+import type { DiaryEntry, DiarySettings } from '../types';
+import { escapeHtml, sanitizeHtml, sanitizeMediaUrl } from '../utils/sanitize';
 
 export interface PdfExportOptions {
   includeTitlePage: boolean;
@@ -21,35 +22,27 @@ export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   paperStyle: 'classic',
   fontSize: 'standard',
   renderMode: 'canvas-hd',
-  authorName: 'Ash Wickramasinghe',
-  diaryTitle: "Ash's Personal Diary"
+  authorName: 'ASH-X8',
+  diaryTitle: "Ash's Personal Diary",
 };
 
-// Cached font Base64 strings to avoid re-fetching
 let cachedAbhayaRegularBase64: string | null = null;
 let cachedAbhayaBoldBase64: string | null = null;
 
-/**
- * Fetches a font file and converts it into a Base64 string for jsPDF
- */
 async function fetchFontAsBase64(url: string): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to load font from ${url} (status ${response.status})`);
+    throw new Error(`Failed to load font from ${url}`);
   }
   const buffer = await response.arrayBuffer();
   let binary = '';
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
+  for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
   return window.btoa(binary);
 }
 
-/**
- * Loads and registers Sinhala fonts (Abhaya Libre Regular & Bold) into jsPDF VFS
- */
 async function registerSinhalaFontsInDoc(doc: jsPDF): Promise<boolean> {
   try {
     if (!cachedAbhayaRegularBase64) {
@@ -80,15 +73,15 @@ async function registerSinhalaFontsInDoc(doc: jsPDF): Promise<boolean> {
   }
 }
 
-/**
- * Extracts structured blocks from entry HTML content
- */
-export function extractTextBlocks(html: string): Array<{ type: 'p' | 'quote' | 'bullet' | 'header'; text: string }> {
+export function extractTextBlocks(
+  html: string
+): Array<{ type: 'p' | 'quote' | 'bullet' | 'header'; text: string }> {
   if (!html) return [];
+  const safeHtml = sanitizeHtml(html);
 
   try {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
+    const doc = parser.parseFromString(safeHtml, 'text/html');
     const blocks: Array<{ type: 'p' | 'quote' | 'bullet' | 'header'; text: string }> = [];
 
     const nodes = Array.from(doc.body.childNodes);
@@ -123,14 +116,11 @@ export function extractTextBlocks(html: string): Array<{ type: 'p' | 'quote' | '
 
     return blocks.length > 0 ? blocks : [{ type: 'p', text: doc.body.textContent?.trim() || '' }];
   } catch {
-    const clean = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const clean = safeHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     return [{ type: 'p', text: clean }];
   }
 }
 
-/**
- * Color palettes for printable pages
- */
 const PAPER_THEMES = {
   classic: {
     bg: '#f7f3e9',
@@ -138,7 +128,7 @@ const PAPER_THEMES = {
     muted: '#786b5c',
     gold: '#a88634',
     rule: '#d2c6b2',
-    quoteBg: '#efe8dc'
+    quoteBg: '#efe8dc',
   },
   ivory: {
     bg: '#fcfbf8',
@@ -146,7 +136,7 @@ const PAPER_THEMES = {
     muted: '#736e69',
     gold: '#96782d',
     rule: '#e1dcd4',
-    quoteBg: '#f5f3ee'
+    quoteBg: '#f5f3ee',
   },
   clean: {
     bg: '#ffffff',
@@ -154,14 +144,10 @@ const PAPER_THEMES = {
     muted: '#64646c',
     gold: '#8c6e28',
     rule: '#dcdce1',
-    quoteBg: '#f8f8fa'
-  }
+    quoteBg: '#f8f8fa',
+  },
 };
 
-/**
- * Generates and downloads a formatted PDF document of selected diary entries.
- * Defaults to High-Fidelity Canvas rendering for full Sinhala font shaping and ligatures.
- */
 export async function exportEntriesToPdf(
   entries: DiaryEntry[],
   settings?: DiarySettings,
@@ -175,23 +161,16 @@ export async function exportEntriesToPdf(
     ...DEFAULT_PDF_OPTIONS,
     diaryTitle: settings?.title || DEFAULT_PDF_OPTIONS.diaryTitle,
     authorName: settings?.authorName || DEFAULT_PDF_OPTIONS.authorName,
-    ...options
+    ...options,
   };
 
   if (mergedOptions.renderMode === 'vector') {
     await exportViaVectorPdf(entries, mergedOptions);
   } else {
-    // Default: High-Definition Canvas Rendering (preserves 100% of Sinhala font ligatures & styling)
     await exportViaCanvasHdPdf(entries, mergedOptions);
   }
 }
 
-/**
- * High-Definition Canvas-Rendered PDF Export:
- * Renders each diary page into a styled DOM element with full browser HarfBuzz font shaping,
- * capturing 100% accurate Sinhala characters, vowel ligatures (kombuva), conjunct consonants,
- * and vintage parchment styling at 2x resolution.
- */
 async function exportViaCanvasHdPdf(
   entries: DiaryEntry[],
   options: PdfExportOptions
@@ -199,22 +178,20 @@ async function exportViaCanvasHdPdf(
   const sortedEntries = [...entries].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
   const theme = PAPER_THEMES[options.paperStyle];
 
-  // Wait for browser fonts to load (including Abhaya Libre and Noto Serif Sinhala)
   if (typeof document !== 'undefined' && document.fonts) {
     try {
       await document.fonts.ready;
-    } catch (e) {
-      console.warn('Font loading check timed out or not supported:', e);
+    } catch {
+      // Proceed if font readiness check times out
     }
   }
 
-  // Create isolated offscreen container for page rendering
   const scratchpad = document.createElement('div');
   scratchpad.id = 'diary-pdf-export-scratchpad';
   scratchpad.style.position = 'fixed';
   scratchpad.style.left = '-9999px';
   scratchpad.style.top = '0';
-  scratchpad.style.width = '794px'; // 210mm at 96 DPI A4 width
+  scratchpad.style.width = '794px';
   scratchpad.style.zIndex = '-9999';
   scratchpad.style.opacity = '0';
   scratchpad.style.pointerEvents = 'none';
@@ -223,14 +200,17 @@ async function exportViaCanvasHdPdf(
   const pagesToRender: HTMLElement[] = [];
   let pageCounter = 1;
 
-  // Helper to create an A4 page element with borders & headers
-  const createPageElement = (headerText: string = '', showFooter: boolean = true): { page: HTMLElement; content: HTMLElement } => {
+  const createPageElement = (
+    headerText: string = '',
+    showFooter: boolean = true
+  ): { page: HTMLElement; content: HTMLElement } => {
     const page = document.createElement('div');
     page.style.width = '794px';
-    page.style.height = '1123px'; // 297mm at 96 DPI A4 height
+    page.style.height = '1123px';
     page.style.backgroundColor = theme.bg;
     page.style.color = theme.text;
-    page.style.fontFamily = "'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', 'Iskoola Pota', Georgia, serif";
+    page.style.fontFamily =
+      "'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', Georgia, serif";
     page.style.boxSizing = 'border-box';
     page.style.padding = '48px 56px';
     page.style.position = 'relative';
@@ -238,7 +218,6 @@ async function exportViaCanvasHdPdf(
     page.style.flexDirection = 'column';
     page.style.overflow = 'hidden';
 
-    // Outer double border
     const borderOuter = document.createElement('div');
     borderOuter.style.position = 'absolute';
     borderOuter.style.inset = '24px';
@@ -254,7 +233,6 @@ async function exportViaCanvasHdPdf(
     borderInner.style.pointerEvents = 'none';
     page.appendChild(borderInner);
 
-    // Running Header
     if (headerText) {
       const header = document.createElement('div');
       header.style.display = 'flex';
@@ -272,7 +250,6 @@ async function exportViaCanvasHdPdf(
       page.appendChild(header);
     }
 
-    // Main content area
     const content = document.createElement('div');
     content.style.flex = '1';
     content.style.display = 'flex';
@@ -280,7 +257,6 @@ async function exportViaCanvasHdPdf(
     content.style.minHeight = '0';
     page.appendChild(content);
 
-    // Running Footer
     if (showFooter) {
       const footer = document.createElement('div');
       footer.style.marginTop = 'auto';
@@ -309,7 +285,6 @@ async function exportViaCanvasHdPdf(
   };
 
   try {
-    // 1. Cover Page
     if (options.includeTitlePage) {
       const { page, content } = createPageElement('', false);
       content.style.justifyContent = 'center';
@@ -325,7 +300,12 @@ async function exportViaCanvasHdPdf(
       emblem.style.borderRadius = '50%';
       emblem.style.overflow = 'hidden';
       emblem.style.backgroundColor = '#000000';
-      emblem.innerHTML = `<img src="/logo.png" style="width:100%;height:100%;object-fit:cover;" />`;
+      const logoImg = document.createElement('img');
+      logoImg.src = '/logo.png';
+      logoImg.style.width = '100%';
+      logoImg.style.height = '100%';
+      logoImg.style.objectFit = 'cover';
+      emblem.appendChild(logoImg);
       content.appendChild(emblem);
 
       const titleEl = document.createElement('h1');
@@ -367,7 +347,7 @@ async function exportViaCanvasHdPdf(
       authorEl.style.fontWeight = '700';
       authorEl.style.color = theme.text;
       authorEl.style.marginBottom = '80px';
-      authorEl.textContent = options.authorName || 'Ash Wickramasinghe';
+      authorEl.textContent = options.authorName || 'ASH-X8';
       content.appendChild(authorEl);
 
       const dateEl = document.createElement('div');
@@ -376,16 +356,15 @@ async function exportViaCanvasHdPdf(
       const exportDateStr = new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
-        day: 'numeric'
+        day: 'numeric',
       });
-      dateEl.textContent = `${sortedEntries.length} Recorded Entries • Inscribed on ${exportDateStr}`;
+      dateEl.textContent = `${sortedEntries.length} Recorded Entries · Inscribed on ${exportDateStr}`;
       content.appendChild(dateEl);
 
       scratchpad.appendChild(page);
       pagesToRender.push(page);
     }
 
-    // 2. Table of Contents
     if (options.includeTableOfContents && sortedEntries.length > 1) {
       const { page, content } = createPageElement('Table of Contents', true);
 
@@ -433,7 +412,13 @@ async function exportViaCanvasHdPdf(
         dateSpan.style.fontSize = '12px';
         dateSpan.style.fontStyle = 'italic';
         dateSpan.style.color = theme.muted;
-        dateSpan.textContent = entry.date ? new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        dateSpan.textContent = entry.date
+          ? new Date(entry.date).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            })
+          : '';
         row.appendChild(dateSpan);
 
         tocList.appendChild(row);
@@ -444,12 +429,10 @@ async function exportViaCanvasHdPdf(
       pagesToRender.push(page);
     }
 
-    // 3. Render Each Diary Entry
     for (let entryIdx = 0; entryIdx < sortedEntries.length; entryIdx++) {
       const entry = sortedEntries[entryIdx];
-      let { page, content } = createPageElement(options.diaryTitle || 'Diary Entry', true);
+      const { page, content } = createPageElement(options.diaryTitle || 'Diary Entry', true);
 
-      // Entry Header
       const headerBar = document.createElement('div');
       headerBar.style.display = 'flex';
       headerBar.style.justifyContent = 'space-between';
@@ -474,15 +457,15 @@ async function exportViaCanvasHdPdf(
           weekday: 'long',
           year: 'numeric',
           month: 'long',
-          day: 'numeric'
+          day: 'numeric',
         });
         headerBar.appendChild(entryDate);
       }
       content.appendChild(headerBar);
 
-      // Entry Title (With full Sinhala & Serif typography)
       const entryTitleEl = document.createElement('h1');
-      entryTitleEl.style.fontFamily = "'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', serif";
+      entryTitleEl.style.fontFamily =
+        "'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', serif";
       entryTitleEl.style.fontSize = '26px';
       entryTitleEl.style.fontWeight = '700';
       entryTitleEl.style.color = theme.text;
@@ -491,7 +474,6 @@ async function exportViaCanvasHdPdf(
       entryTitleEl.textContent = entry.title || 'Untitled Entry';
       content.appendChild(entryTitleEl);
 
-      // Metadata line (Mood, Location, Tags)
       if (options.includeMetadata) {
         const metaContainer = document.createElement('div');
         metaContainer.style.display = 'flex';
@@ -522,7 +504,6 @@ async function exportViaCanvasHdPdf(
         }
       }
 
-      // Divider line
       const line = document.createElement('div');
       line.style.height = '1px';
       line.style.backgroundColor = theme.gold;
@@ -530,7 +511,19 @@ async function exportViaCanvasHdPdf(
       line.style.marginBottom = '18px';
       content.appendChild(line);
 
-      // Entry Text Blocks
+      const safeCoverUrl = sanitizeMediaUrl(entry.coverImage);
+      if (safeCoverUrl) {
+        const coverEl = document.createElement('img');
+        coverEl.src = safeCoverUrl;
+        coverEl.crossOrigin = 'anonymous';
+        coverEl.style.width = '100%';
+        coverEl.style.maxHeight = '170px';
+        coverEl.style.objectFit = 'cover';
+        coverEl.style.borderRadius = '4px';
+        coverEl.style.marginBottom = '16px';
+        content.appendChild(coverEl);
+      }
+
       const blocks = extractTextBlocks(entry.content);
       const contentContainer = document.createElement('div');
       contentContainer.style.fontSize = options.fontSize === 'large' ? '16px' : '14.5px';
@@ -546,16 +539,22 @@ async function exportViaCanvasHdPdf(
           quoteEl.style.margin = '6px 0';
           quoteEl.style.padding = '10px 16px';
           quoteEl.style.backgroundColor = theme.quoteBg;
-          quoteEl.style.borderLeft = `3.5px solid ${theme.gold}`;
+          quoteEl.style.borderLeft = `2px solid ${theme.gold}`;
           quoteEl.style.fontStyle = 'italic';
-          quoteEl.style.borderRadius = '0 6px 6px 0';
           quoteEl.textContent = block.text;
           contentContainer.appendChild(quoteEl);
         } else if (block.type === 'bullet') {
           const liEl = document.createElement('div');
           liEl.style.display = 'flex';
           liEl.style.gap = '8px';
-          liEl.innerHTML = `<span style="color:${theme.gold}; font-weight:bold">•</span><span>${block.text}</span>`;
+          const dot = document.createElement('span');
+          dot.style.color = theme.gold;
+          dot.style.fontWeight = '700';
+          dot.textContent = '•';
+          const spanText = document.createElement('span');
+          spanText.textContent = block.text;
+          liEl.appendChild(dot);
+          liEl.appendChild(spanText);
           contentContainer.appendChild(liEl);
         } else if (block.type === 'header') {
           const hEl = document.createElement('h3');
@@ -578,11 +577,10 @@ async function exportViaCanvasHdPdf(
       pagesToRender.push(page);
     }
 
-    // Now render each page to Canvas and generate jsPDF document
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
-      format: 'a4'
+      format: 'a4',
     });
 
     const totalPages = pagesToRender.length;
@@ -593,10 +591,10 @@ async function exportViaCanvasHdPdf(
       }
 
       const canvas = await html2canvas(pageEl, {
-        scale: 2, // Crisp 300 DPI equivalent
+        scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: null
+        backgroundColor: null,
       });
 
       const imgData = canvas.toDataURL('image/jpeg', 0.94);
@@ -609,16 +607,12 @@ async function exportViaCanvasHdPdf(
     const filename = `ashs-diary-export-${new Date().toISOString().slice(0, 10)}.pdf`;
     doc.save(filename);
   } finally {
-    // Clean up temporary DOM elements
     if (scratchpad.parentNode) {
       document.body.removeChild(scratchpad);
     }
   }
 }
 
-/**
- * Direct Vector PDF export with embedded Abhaya Libre Sinhala TrueType font
- */
 async function exportViaVectorPdf(
   entries: DiaryEntry[],
   options: PdfExportOptions
@@ -628,7 +622,7 @@ async function exportViaVectorPdf(
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
-    format: 'a4'
+    format: 'a4',
   });
 
   const pageWidth = 210;
@@ -636,7 +630,6 @@ async function exportViaVectorPdf(
   const margin = 22;
   const contentWidth = pageWidth - margin * 2;
 
-  // Embed Sinhala fonts into jsPDF
   const fontsLoaded = await registerSinhalaFontsInDoc(doc);
   const fontName = fontsLoaded ? 'AbhayaLibre' : 'times';
 
@@ -647,7 +640,7 @@ async function exportViaVectorPdf(
       muted: [120, 107, 92] as [number, number, number],
       gold: [168, 134, 52] as [number, number, number],
       rule: [210, 198, 178] as [number, number, number],
-      quoteBg: [240, 234, 220] as [number, number, number]
+      quoteBg: [240, 234, 220] as [number, number, number],
     },
     ivory: {
       bg: [252, 251, 248] as [number, number, number],
@@ -655,7 +648,7 @@ async function exportViaVectorPdf(
       muted: [115, 110, 105] as [number, number, number],
       gold: [150, 120, 45] as [number, number, number],
       rule: [225, 220, 212] as [number, number, number],
-      quoteBg: [245, 243, 238] as [number, number, number]
+      quoteBg: [245, 243, 238] as [number, number, number],
     },
     clean: {
       bg: [255, 255, 255] as [number, number, number],
@@ -663,8 +656,8 @@ async function exportViaVectorPdf(
       muted: [100, 100, 108] as [number, number, number],
       gold: [140, 110, 40] as [number, number, number],
       rule: [220, 220, 225] as [number, number, number],
-      quoteBg: [248, 248, 250] as [number, number, number]
-    }
+      quoteBg: [248, 248, 250] as [number, number, number],
+    },
   }[options.paperStyle];
 
   let currentPageNumber = 1;
@@ -690,11 +683,12 @@ async function exportViaVectorPdf(
     doc.line(margin, margin - 7, pageWidth - margin, margin - 7);
 
     if (showPageNumber) {
-      doc.text(`— ${currentPageNumber} —`, pageWidth / 2, pageHeight - margin + 8, { align: 'center' });
+      doc.text(`— ${currentPageNumber} —`, pageWidth / 2, pageHeight - margin + 8, {
+        align: 'center',
+      });
     }
   };
 
-  // 1. Cover
   if (options.includeTitlePage) {
     drawPageBackground();
     let y = 65;
@@ -728,13 +722,17 @@ async function exportViaVectorPdf(
     doc.setFont(fontName, 'normal');
     doc.setFontSize(10);
     doc.setTextColor(...styles.muted);
-    doc.text(`Printed Collection of ${sortedEntries.length} Inscribed Entries`, pageWidth / 2, y, { align: 'center' });
+    doc.text(
+      `Printed Collection of ${sortedEntries.length} Inscribed Entries`,
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
 
     doc.addPage();
     currentPageNumber++;
   }
 
-  // 2. Entries
   sortedEntries.forEach((entry, entryIdx) => {
     drawPageBackground();
     drawPageDecorations(options.diaryTitle || 'Diary Entry', true);
@@ -750,7 +748,7 @@ async function exportViaVectorPdf(
         weekday: 'long',
         year: 'numeric',
         month: 'long',
-        day: 'numeric'
+        day: 'numeric',
       });
       doc.setFont(fontName, 'normal');
       doc.setFontSize(10);
@@ -776,7 +774,7 @@ async function exportViaVectorPdf(
         doc.setFont(fontName, 'normal');
         doc.setFontSize(9);
         doc.setTextColor(...styles.muted);
-        doc.text(metaParts.join('   •   '), margin, y);
+        doc.text(metaParts.join('   ·   '), margin, y);
         y += 6;
       }
     }
@@ -845,22 +843,18 @@ async function exportViaVectorPdf(
   doc.save(filename);
 }
 
-/**
- * Generates an HTML printable window / triggers print dialog with book styling
- * including full native support for Sinhala and complex script typography.
- */
 export function printEntriesDirectly(
   entries: DiaryEntry[],
   settings?: DiarySettings,
-  options: Partial<PdfExportOptions> = {}
+  _options: Partial<PdfExportOptions> = {}
 ): void {
   if (!entries || entries.length === 0) {
     throw new Error('No diary entries selected to print.');
   }
 
   const sortedEntries = [...entries].sort((a, b) => (a.pageOrder || 0) - (b.pageOrder || 0));
-  const title = settings?.title || "Ash's Personal Diary";
-  const author = settings?.authorName || 'Ash';
+  const title = escapeHtml(settings?.title || "Ash's Personal Diary");
+  const author = escapeHtml(settings?.authorName || 'Ash');
 
   const printIframe = document.createElement('iframe');
   printIframe.style.position = 'fixed';
@@ -872,35 +866,49 @@ export function printEntriesDirectly(
   document.body.appendChild(printIframe);
 
   const doc = printIframe.contentWindow?.document;
-  if (!doc) return;
+  if (!doc) {
+    throw new Error('Could not initialize print view in this browser.');
+  }
 
-  const entriesHtml = sortedEntries.map((entry, idx) => {
-    const formattedDate = entry.date
-      ? new Date(entry.date).toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })
-      : '';
+  const entriesHtml = sortedEntries
+    .map((entry, idx) => {
+      const formattedDate = entry.date
+        ? escapeHtml(
+            new Date(entry.date).toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })
+          )
+        : '';
 
-    return `
+      const safeTitle = escapeHtml(entry.title || 'Untitled Entry');
+      const safeContent = sanitizeHtml(entry.content || '');
+      const safeCover = sanitizeMediaUrl(entry.coverImage);
+
+      return `
       <section class="diary-print-entry">
         <header class="entry-header">
           <div class="entry-sub">
             <span class="entry-num">ENTRY ${String(idx + 1).padStart(2, '0')}</span>
             <span class="entry-date">${formattedDate}</span>
           </div>
-          <h1 class="entry-title">${entry.title || 'Untitled Entry'}</h1>
+          <h1 class="entry-title">${safeTitle}</h1>
           <div class="entry-meta">
-            ${entry.mood ? `<span class="badge">Mood: ${entry.mood}</span>` : ''}
-            ${entry.location ? `<span class="badge">Location: ${entry.location}</span>` : ''}
-            ${entry.tags && entry.tags.length > 0 ? `<span class="badge">Tags: #${entry.tags.join(' #')}</span>` : ''}
+            ${entry.mood ? `<span>Mood: ${escapeHtml(entry.mood)}</span>` : ''}
+            ${entry.location ? `<span>Location: ${escapeHtml(entry.location)}</span>` : ''}
+            ${
+              entry.tags && entry.tags.length > 0
+                ? `<span>Tags: #${entry.tags.map(escapeHtml).join(' #')}</span>`
+                : ''
+            }
           </div>
         </header>
         <hr class="entry-divider" />
+        ${safeCover ? `<img src="${escapeHtml(safeCover)}" style="max-height:220px;width:100%;object-fit:cover;border-radius:4px;margin-bottom:14px;" />` : ''}
         <div class="entry-content">
-          ${entry.content || ''}
+          ${safeContent}
         </div>
         <footer class="entry-footer">
           <span>${title}</span>
@@ -908,7 +916,8 @@ export function printEntriesDirectly(
         </footer>
       </section>
     `;
-  }).join('');
+    })
+    .join('');
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -918,17 +927,12 @@ export function printEntriesDirectly(
         <title>${title} — Printable PDF</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Abhaya+Libre:wght@400;500;600;700;800&family=Cinzel:wght@500;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Noto+Serif+Sinhala:wght@400;600;700&family=Noto+Sans+Sinhala:wght@400;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Abhaya+Libre:wght@400;500;600;700;800&family=Cinzel:wght@500;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Noto+Serif+Sinhala:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
-          @page {
-            size: A4 portrait;
-            margin: 18mm 18mm 20mm 18mm;
-          }
-          * {
-            box-sizing: border-box;
-          }
+          @page { size: A4 portrait; margin: 18mm 18mm 20mm 18mm; }
+          * { box-sizing: border-box; }
           body {
-            font-family: 'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', 'Iskoola Pota', Georgia, serif;
+            font-family: 'Abhaya Libre', 'Noto Serif Sinhala', 'Cormorant Garamond', Georgia, serif;
             color: #1a1612;
             background: #fff;
             margin: 0;
@@ -957,18 +961,8 @@ export function printEntriesDirectly(
             color: #8c6e28;
             margin-bottom: 12px;
           }
-          .cover-sub {
-            font-size: 18px;
-            font-style: italic;
-            color: #665b4c;
-            margin-bottom: 50px;
-          }
-          .cover-author {
-            font-size: 17px;
-            color: #2b241d;
-            margin-top: 40px;
-            font-weight: 600;
-          }
+          .cover-sub { font-size: 18px; font-style: italic; color: #665b4c; margin-bottom: 50px; }
+          .cover-author { font-size: 17px; color: #2b241d; margin-top: 40px; font-weight: 600; }
           .diary-print-entry {
             page-break-after: always;
             break-after: page;
@@ -977,13 +971,8 @@ export function printEntriesDirectly(
             flex-direction: column;
             padding: 10px 0;
           }
-          .diary-print-entry:last-child {
-            page-break-after: auto;
-            break-after: auto;
-          }
-          .entry-header {
-            margin-bottom: 14px;
-          }
+          .diary-print-entry:last-child { page-break-after: auto; break-after: auto; }
+          .entry-header { margin-bottom: 14px; }
           .entry-sub {
             display: flex;
             justify-content: space-between;
@@ -1001,42 +990,18 @@ export function printEntriesDirectly(
             margin: 4px 0 10px 0;
             line-height: 1.35;
           }
-          .entry-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            font-size: 12px;
-            color: #6e6456;
-            font-style: italic;
-          }
-          .entry-divider {
-            border: 0;
-            border-top: 1px solid #d4af37;
-            margin: 12px 0 20px 0;
-            opacity: 0.7;
-          }
-          .entry-content {
-            font-size: 15px;
-            line-height: 1.8;
-            color: #24201b;
-            flex: 1;
-          }
-          .entry-content p {
-            margin-bottom: 14px;
-          }
+          .entry-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #6e6456; font-style: italic; }
+          .entry-divider { border: 0; border-top: 1px solid #d4af37; margin: 12px 0 20px 0; opacity: 0.7; }
+          .entry-content { font-size: 15px; line-height: 1.8; color: #24201b; flex: 1; }
+          .entry-content p { margin-bottom: 14px; }
           .entry-content blockquote {
-            border-left: 3.5px solid #d4af37;
+            border-left: 2px solid #d4af37;
             background: #faf7f0;
             padding: 10px 16px;
             margin: 16px 0;
             font-style: italic;
           }
-          .entry-content img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 4px;
-            margin: 12px 0;
-          }
+          .entry-content img { max-width: 100%; height: auto; border-radius: 4px; margin: 12px 0; }
           .entry-footer {
             margin-top: auto;
             padding-top: 16px;
@@ -1057,7 +1022,7 @@ export function printEntriesDirectly(
           <div class="cover-sub">Chronicles of Thought & Quiet Hours</div>
           <div class="cover-author">Inscribed by ${author}</div>
           <div style="font-size: 13px; color: #887e70; margin-top: 12px;">
-            ${sortedEntries.length} Recorded Entries • Printed Collection
+            ${sortedEntries.length} Recorded Entries · Printed Collection
           </div>
         </div>
         ${entriesHtml}
